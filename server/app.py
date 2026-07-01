@@ -1,7 +1,9 @@
 import os
 import jwt
 import datetime
+import random
 from functools import wraps
+import yfinance as yf
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from extensions import db, migrate, bcrypt
@@ -144,6 +146,122 @@ def get_current_user(current_user):
     return jsonify({
         "user": current_user.to_dict()
     }), 200
+
+def get_mock_data(ticker, range_param):
+    points = 24
+    base_price = 150.0
+    if ticker == 'MSFT': base_price = 420.0
+    elif ticker == 'AAPL': base_price = 210.0
+    elif ticker == 'GOOGL': base_price = 180.0
+    elif ticker == 'TSLA': base_price = 190.0
+    
+    data_points = []
+    current_price = base_price
+    
+    for i in range(points):
+        # random walk with slightly positive drift
+        change = random.uniform(-0.015, 0.02) * current_price
+        current_price += change
+        
+        if range_param == '1d':
+            # 15-minute increments starting from 9:30 AM
+            hour = 9 + (i * 15 // 60)
+            minute = (i * 15) % 60
+            time_str = f"{hour:02d}:{minute:02d}"
+        elif range_param == '5d':
+            day = (i // 5) + 1
+            hour = 9 + (i % 5) * 2
+            time_str = f"Day {day} {hour:02d}:00"
+        elif range_param == '1m':
+            time_str = f"2026-06-{i+1:02d}"
+        else:  # 1y
+            month_names = ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"]
+            time_str = f"{month_names[i % 12]} 2025/26"
+            
+        data_points.append({
+            "time": time_str,
+            "price": round(current_price, 2),
+            "open": round(current_price - change, 2),
+            "high": round(max(current_price, current_price - change) + random.uniform(0.1, 1.5), 2),
+            "low": round(min(current_price, current_price - change) - random.uniform(0.1, 1.5), 2),
+            "volume": random.randint(150000, 950000)
+        })
+    return data_points
+
+@app.route('/api/market-data', methods=['GET'])
+@token_required
+def get_market_data(current_user):
+    ticker = request.args.get('ticker', 'AAPL').upper()
+    range_param = request.args.get('range', '1d').lower()
+
+    # Allowed stock tickers
+    allowed_tickers = ['AAPL', 'MSFT', 'GOOGL', 'TSLA']
+    if ticker not in allowed_tickers:
+        return jsonify({"error": f"Ticker {ticker} is not supported. Use one of {allowed_tickers}"}), 400
+
+    # Map frontend range parameters to yfinance periods and intervals
+    # ranges: '1d', '5d', '1m', '1y'
+    range_mappings = {
+        '1d': {'period': '1d', 'interval': '5m'},
+        '5d': {'period': '5d', 'interval': '30m'},
+        '1m': {'period': '1mo', 'interval': '1d'},
+        '1y': {'period': '1y', 'interval': '1d'}
+    }
+
+    if range_param not in range_mappings:
+        return jsonify({"error": f"Range {range_param} is not supported. Use one of {list(range_mappings.keys())}"}), 400
+
+    mapping = range_mappings[range_param]
+
+    try:
+        # Fetch ticker info from yfinance
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period=mapping['period'], interval=mapping['interval'])
+
+        if hist.empty:
+            # Fallback to mock data if yfinance returns empty response (e.g. rate limit / market closed details)
+            print(f"yfinance returned empty data for {ticker} ({range_param}). Falling back to mock data.")
+            mock_data = get_mock_data(ticker, range_param)
+            return jsonify({
+                "source": "mock_fallback",
+                "ticker": ticker,
+                "range": range_param,
+                "data": mock_data
+            }), 200
+
+        data_points = []
+        for timestamp, row in hist.iterrows():
+            if range_param in ['1d', '5d']:
+                time_str = timestamp.strftime('%H:%M') if range_param == '1d' else timestamp.strftime('%a %H:%M')
+            else:
+                time_str = timestamp.strftime('%Y-%m-%d')
+
+            data_points.append({
+                "time": time_str,
+                "price": round(row['Close'], 2),
+                "open": round(row['Open'], 2),
+                "high": round(row['High'], 2),
+                "low": round(row['Low'], 2),
+                "volume": int(row['Volume'])
+            })
+
+        return jsonify({
+            "source": "yfinance",
+            "ticker": ticker,
+            "range": range_param,
+            "data": data_points
+        }), 200
+
+    except Exception as e:
+        print(f"yfinance error for {ticker}: {str(e)}. Falling back to mock data.")
+        # Fail-safe mock fallback to keep dashboard visual layout intact
+        mock_data = get_mock_data(ticker, range_param)
+        return jsonify({
+            "source": "mock_fallback_error",
+            "ticker": ticker,
+            "range": range_param,
+            "data": mock_data
+        }), 200
 
 if __name__ == '__main__':
     # Run server on port 5000
