@@ -12,6 +12,8 @@ __pycache__/
 .Python
 *.db
 *.sqlite
+server/chroma_db/
+server/documents/
 
 # Node
 node_modules/

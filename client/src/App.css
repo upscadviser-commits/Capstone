@@ -1050,3 +1050,117 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Sidebar PDF Upload Styles */
+.sidebar-upload-section {
+  padding: 16px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  margin-top: auto; /* Pushes upload section to the bottom of links but above footer */
+}
+
+.sidebar-upload-section h4 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.upload-dropzone {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.upload-dropzone:hover {
+  background: rgba(168, 85, 247, 0.04);
+  border-color: #a855f7;
+}
+
+.upload-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.upload-spinner-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #c084fc;
+}
+
+.spinner-xs {
+  animation: spin 1s linear infinite;
+}
+
+.upload-status-msg {
+  font-size: 0.72rem;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.upload-status-msg.success {
+  background: rgba(16, 185, 129, 0.1);
+  color: #a7f3d0;
+  border-left: 2px solid #10b981;
+}
+
+.upload-status-msg.error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border-left: 2px solid #ef4444;
+}
+
+/* Chat Citation Badges */
+.chat-citations-container {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.citation-header-text {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #a78bfa;
+  margin-bottom: 4px;
+}
+
+.citations-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.citation-pill-badge {
+  font-size: 0.65rem;
+  background: rgba(168, 85, 247, 0.18);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  color: #d8b4fe;
+  padding: 2px 6px;
+  border-radius: 12px;
+  font-weight: 500;
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
+  transition: all 0.2s ease;
+}
+
+.citation-pill-badge:hover {
+  background: rgba(168, 85, 247, 0.3);
+  color: #fff;
+}

@@ -9,6 +9,10 @@ from flask_cors import CORS
 from extensions import db, migrate, bcrypt
 from models import User
 from tickers import search_tickers_db, TICKERS_DB
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -26,6 +30,12 @@ CORS(app)
 db.init_app(app)
 migrate.init_app(app, db)
 bcrypt.init_app(app)
+
+# Initialize ChromaDB Persistent Client
+import chromadb
+CHROMA_PATH = os.path.join(BASE_DIR, "chroma_db")
+chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+chroma_collection = chroma_client.get_or_create_collection(name="market_documents")
 
 # Decorator to verify JWT token and inject current user
 def token_required(f):
@@ -260,6 +270,48 @@ def get_market_data(current_user):
             "data": mock_data
         }), 200
 
+@app.route('/api/upload-pdf', methods=['POST'])
+@token_required
+def upload_pdf(current_user):
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file part in the request"}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+
+        if not file.filename.lower().endswith('.pdf'):
+            return jsonify({"error": "Only PDF files are allowed"}), 400
+
+        from werkzeug.utils import secure_filename
+        filename = secure_filename(file.filename)
+
+        DOCS_DIR = os.path.join(BASE_DIR, "documents")
+        if not os.path.exists(DOCS_DIR):
+            os.makedirs(DOCS_DIR)
+
+        filepath = os.path.join(DOCS_DIR, filename)
+        file.save(filepath)
+
+        # Index the PDF immediately
+        from ingest import ingest_pdf_file, guess_ticker_from_filename
+        success = ingest_pdf_file(filepath)
+
+        if success:
+            ticker = guess_ticker_from_filename(filename)
+            return jsonify({
+                "message": f"Successfully uploaded and indexed {filename}",
+                "filename": filename,
+                "ticker": ticker
+            }), 200
+        else:
+            return jsonify({"error": "Failed to extract text or index the document"}), 500
+
+    except Exception as e:
+        print(f"Error in upload_pdf: {str(e)}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
 @app.route('/api/tickers/search', methods=['GET'])
 @token_required
 def search_tickers(current_user):
@@ -349,22 +401,17 @@ def chat(current_user):
         if not message:
             return jsonify({"error": "Message content cannot be empty"}), 400
 
-        # Analyze simple keywords to formulate context-aware answers
-        msg_upper = message.upper()
-        
         # Try to find a matching ticker or company name in TICKERS_DB
+        msg_upper = message.upper()
         matched_ticker = None
         for item in TICKERS_DB:
-            # Check if user message contains symbol exactly or name partially
             name_parts = item["name"].upper().replace("LTD.", "").replace("CORP.", "").replace("INC.", "").split()
             symbol_clean = item["symbol"].split('.')[0].upper()
-            
-            # If they mention the ticker symbol (e.g. RELIANCE.NS, TCS, AAPL)
+
             if symbol_clean in msg_upper or item["symbol"].upper() in msg_upper:
                 matched_ticker = item
                 break
-                
-            # Or if they mention any significant part of the company name (e.g. "Reliance", "Infosys")
+
             matched_by_name = False
             for part in name_parts:
                 if len(part) > 3 and part in msg_upper:
@@ -373,21 +420,97 @@ def chat(current_user):
             if matched_by_name:
                 matched_ticker = item
                 break
-                
-        if matched_ticker:
-            reply = f"I detected you are asking about {matched_ticker['name']} ({matched_ticker['symbol']}). " \
-                    f"Its stock data is loaded on the charts. " \
-                    f"In Step 5 (RAG Integration), I will query ChromaDB for its filings and financial reports to answer this with factual sources!"
+
+        # Query ChromaDB for context
+        # We retrieve top 3 relevant chunks
+        try:
+            query_filter = {"ticker": matched_ticker["symbol"]} if matched_ticker else None
+            db_results = chroma_collection.query(
+                query_texts=[message],
+                n_results=3,
+                where=query_filter
+            )
+        except Exception as db_err:
+            print(f"ChromaDB query error: {str(db_err)}")
+            db_results = {}
+
+        # Format context chunks
+        context_parts = []
+        sources = []
+
+        if db_results and db_results.get('documents') and len(db_results['documents']) > 0:
+            documents = db_results['documents'][0]
+            metadatas = db_results['metadatas'][0]
+
+            for idx, doc in enumerate(documents):
+                meta = metadatas[idx]
+                context_parts.append(f"[Source: {meta['source']}, Page {meta['page']}]:\n{doc}")
+                source_item = {"filename": meta['source'], "page": meta['page']}
+                if source_item not in sources:
+                    sources.append(source_item)
+
+        context_text = "\n\n".join(context_parts)
+
+        # Check for Gemini API key
+        GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+        if not GEMINI_API_KEY or GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
+            # API Key not configured yet - return mock RAG answer listing retrieved contexts
+            if sources:
+                reply = f"Hello {current_user.username}! I retrieved matching text chunks from the vector database, but the **`GEMINI_API_KEY`** is not configured in `/server/.env` yet!\n\n" \
+                        f"**Here is the relevant data I retrieved from the annual reports:**\n"
+                for idx, src in enumerate(sources):
+                    reply += f"\n* **{src['filename']} (Page {src['page']})**:\n> \"{documents[idx][:250]}...\"\n"
+                reply += "\n*Please set your `GEMINI_API_KEY` in `/server/.env` to enable full AI answers!*"
+            else:
+                reply = f"Hello {current_user.username}! I checked the vector database but found no matching reports or documents. " \
+                        f"Please upload a PDF annual report using the sidebar upload widget, or add your `GEMINI_API_KEY` in `/server/.env` to start chatting!"
         else:
-            reply = f"Hello {current_user.username}! I am your Market Intelligence assistant. I received your message: '{message}'. In Step 5, we will connect ChromaDB to retrieve context from financial documents and reports."
+            # Query Gemini API via REST
+            import requests
+
+            if sources:
+                system_prompt = f"You are an expert financial assistant. Use the following retrieved financial annual report context to answer the user's question.\n" \
+                                f"Always cite the document name and page number when referring to the context.\n" \
+                                f"If the context does not contain the answer, say 'Based on the uploaded documents, I couldn't find the exact answer, but...' and then give a helpful answer using your general knowledge.\n\n" \
+                                f"Retrieved Context:\n{context_text}\n\n" \
+                                f"User Question: {message}\n"
+            else:
+                system_prompt = f"You are a helpful Market Intelligence AI assistant.\n" \
+                                f"No specific document context was found in the database. Answer the user's question using your general knowledge. " \
+                                f"If the user is asking about a specific stock price, you can mention they can check the dashboard charts.\n\n" \
+                                f"User Question: {message}\n"
+
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+                payload = {
+                    "contents": [{
+                        "parts": [{"text": system_prompt}]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.2
+                    }
+                }
+                headers = {"Content-Type": "application/json"}
+                response = requests.post(url, json=payload, headers=headers, timeout=10)
+
+                if response.status_code == 200:
+                    res_data = response.json()
+                    reply = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                else:
+                    reply = f"I retrieved relevant context, but error calling Gemini API: HTTP {response.status_code}. Response: {response.text}"
+            except Exception as api_err:
+                reply = f"I retrieved relevant context, but failed to connect to Gemini API: {str(api_err)}"
 
         return jsonify({
             "reply": reply,
             "user_message": message,
+            "sources": sources,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }), 200
 
     except Exception as e:
+        print(f"Error in chat endpoint: {str(e)}")
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 if __name__ == '__main__':

@@ -31,6 +31,7 @@ interface ChatMessage {
   sender: 'user' | 'agent';
   text: string;
   time: string;
+  sources?: { filename: string; page: number }[];
 }
 
 interface TickerItem {
@@ -274,6 +275,57 @@ function App() {
   ]);
   const [chatSending, setChatSending] = useState<boolean>(false);
 
+  // File Upload states for RAG
+  const [uploadingFile, setUploadingFile] = useState<boolean>(false);
+  const [uploadStatus, setUploadStatus] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !token) return;
+
+    const file = files[0];
+    if (file.type !== 'application/pdf') {
+      setUploadStatus({ text: 'Only PDF documents are allowed', type: 'error' });
+      return;
+    }
+
+    setUploadingFile(true);
+    setUploadStatus(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch('http://localhost:5000/api/upload-pdf', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setUploadStatus({ text: `Indexed: ${file.name}`, type: 'success' });
+        // Add a notification in chat
+        const notificationMsg: ChatMessage = {
+          sender: 'agent',
+          text: `Successfully uploaded and indexed "${file.name}"! You can now ask questions about this report in the chat.`,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setChatMessages(prev => [...prev, notificationMsg]);
+      } else {
+        throw new Error(data.error || 'Failed to upload and index document');
+      }
+    } catch (err: any) {
+      console.error('File upload error:', err);
+      setUploadStatus({ text: err.message || 'File upload failed', type: 'error' });
+    } finally {
+      setUploadingFile(false);
+      e.target.value = '';
+    }
+  };
+
   // Verify token on load
   const verifyToken = async (authToken: string) => {
     setVerifyingToken(true);
@@ -470,6 +522,7 @@ function App() {
       const agentMessage: ChatMessage = {
         sender: 'agent',
         text: data.reply,
+        sources: data.sources || [],
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
 
@@ -576,6 +629,36 @@ function App() {
                   </button>
                 </li>
               </ul>
+
+              <div className="sidebar-upload-section">
+                <h4>Upload Document (PDF)</h4>
+                <div className="upload-dropzone">
+                  <input 
+                    type="file" 
+                    accept=".pdf" 
+                    onChange={handleFileUpload} 
+                    id="sidebar-file-upload" 
+                    disabled={uploadingFile}
+                    style={{ display: 'none' }}
+                  />
+                  <label htmlFor="sidebar-file-upload" className="upload-label">
+                    {uploadingFile ? (
+                      <div className="upload-spinner-container">
+                        <RefreshCw className="spinner-icon animate-spin spinner-xs" size={14} style={{ marginRight: '6px', display: 'inline-block' }} />
+                        <span>Indexing...</span>
+                      </div>
+                    ) : (
+                      <span>Select PDF Report</span>
+                    )}
+                  </label>
+                </div>
+                {uploadStatus && (
+                  <div className={`upload-status-msg ${uploadStatus.type}`}>
+                    {uploadStatus.text}
+                  </div>
+                )}
+              </div>
+
               <div className="sidebar-footer">
                 <span className="meta-text">SQLite Database: Online</span>
                 <span className="meta-text">Alembic Migrations: v20729abfa32</span>
@@ -772,8 +855,8 @@ function App() {
                   <span className="step-tag done">✓ Step 1: Init</span>
                   <span className="step-tag done">✓ Step 2: Auth</span>
                   <span className="step-tag done">✓ Step 3: Charts</span>
-                  <span className="step-tag active">➔ Step 4: Redesign & Chat</span>
-                  <span className="step-tag">Step 5: RAG</span>
+                  <span className="step-tag done">✓ Step 4: Chat</span>
+                  <span className="step-tag active">➔ Step 5: RAG</span>
                 </div>
               </div>
 
@@ -791,7 +874,22 @@ function App() {
                   {chatMessages.map((msg, index) => (
                     <div key={index} className={`chat-bubble-row ${msg.sender}`}>
                       <div className="chat-bubble">
-                        <p>{msg.text}</p>
+                        <p style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</p>
+                        
+                        {/* Source citations rendering */}
+                        {msg.sources && msg.sources.length > 0 && (
+                          <div className="chat-citations-container">
+                            <span className="citation-header-text">Sources Cited:</span>
+                            <div className="citations-list">
+                              {msg.sources.map((src, sIdx) => (
+                                <span key={sIdx} className="citation-pill-badge" title={src.filename}>
+                                  📄 {src.filename.length > 18 ? `${src.filename.substring(0, 15)}...` : src.filename} (p. {src.page})
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
                         <span className="bubble-time">{msg.time}</span>
                       </div>
                     </div>
