@@ -304,10 +304,11 @@ body {
 }
 
 .dual-charts-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   flex: 1;
+  min-height: 0;
 }
 
 /* Chart Cards */
@@ -317,12 +318,13 @@ body {
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--panel-border);
   border-radius: 16px;
-  padding: 14px;
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   box-shadow: var(--shadow-glow);
   box-sizing: border-box;
+  flex: 1;
   min-height: 0; /* Prevents overflow */
 }
 
@@ -334,11 +336,21 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
-/* Ticker Dropdown Styling */
-.ticker-dropdown {
+/* Search Input Styling */
+.ticker-search-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  max-width: 280px; /* Stretched textbox to show complete ticker */
+}
+
+.ticker-input {
+  flex: 1;
+  width: 100%;
   background: #121026;
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #fff;
@@ -347,15 +359,29 @@ body {
   font-weight: 600;
   padding: 6px 10px;
   border-radius: 6px;
-  cursor: pointer;
   outline: none;
   transition: all 0.2s ease;
-  max-width: 160px;
 }
 
-.ticker-dropdown:focus {
+.ticker-input:focus {
   border-color: #a855f7;
   box-shadow: 0 0 6px rgba(168, 85, 247, 0.3);
+}
+
+.ticker-search-btn {
+  background: var(--primary-gradient);
+  border: none;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ticker-search-btn:hover {
+  box-shadow: 0 2px 6px rgba(168, 85, 247, 0.3);
 }
 
 .range-pills {

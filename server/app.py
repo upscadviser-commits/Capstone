@@ -194,10 +194,6 @@ def get_market_data(current_user):
     ticker = request.args.get('ticker', 'AAPL').upper()
     range_param = request.args.get('range', '1d').lower()
 
-    # Allowed stock tickers
-    allowed_tickers = ['AAPL', 'MSFT', 'GOOGL', 'TSLA']
-    if ticker not in allowed_tickers:
-        return jsonify({"error": f"Ticker {ticker} is not supported. Use one of {allowed_tickers}"}), 400
 
     # Map frontend range parameters to yfinance periods and intervals
     # ranges: '1d', '5d', '1m', '1y'

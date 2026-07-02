@@ -33,12 +33,6 @@ interface ChatMessage {
   time: string;
 }
 
-const SUPPORTED_TICKERS = [
-  { value: 'AAPL', label: 'Apple Inc. (AAPL)' },
-  { value: 'MSFT', label: 'Microsoft Corp. (MSFT)' },
-  { value: 'GOOGL', label: 'Alphabet Inc. (GOOGL)' },
-  { value: 'TSLA', label: 'Tesla Inc. (TSLA)' }
-];
 
 function App() {
   // Authentication states
@@ -64,6 +58,7 @@ function App() {
 
   // Chart A states (Left Chart)
   const [tickerA, setTickerA] = useState<string>('AAPL');
+  const [tickerInputA, setTickerInputA] = useState<string>('AAPL');
   const [rangeA, setRangeA] = useState<string>('1d');
   const [dataA, setDataA] = useState<StockPoint[]>([]);
   const [loadingA, setLoadingA] = useState<boolean>(false);
@@ -72,6 +67,7 @@ function App() {
 
   // Chart B states (Right Chart)
   const [tickerB, setTickerB] = useState<string>('MSFT');
+  const [tickerInputB, setTickerInputB] = useState<string>('MSFT');
   const [rangeB, setRangeB] = useState<string>('1d');
   const [dataB, setDataB] = useState<StockPoint[]>([]);
   const [loadingB, setLoadingB] = useState<boolean>(false);
@@ -434,15 +430,23 @@ function App() {
                     {/* Chart A: Left Chart */}
                     <div className="chart-card-box">
                       <div className="chart-card-header-v2">
-                        <select 
-                          className="ticker-dropdown"
-                          value={tickerA}
-                          onChange={(e) => setTickerA(e.target.value)}
-                        >
-                          {SUPPORTED_TICKERS.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
+                        <div className="ticker-search-container">
+                          <input 
+                            type="text" 
+                            className="ticker-input" 
+                            value={tickerInputA} 
+                            onChange={(e) => setTickerInputA(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') setTickerA(tickerInputA.trim().toUpperCase()) }}
+                            list="tickers-list"
+                            placeholder="Enter ticker (e.g. RELIANCE.NS)"
+                          />
+                          <button 
+                            className="ticker-search-btn"
+                            onClick={() => setTickerA(tickerInputA.trim().toUpperCase())}
+                          >
+                            Go
+                          </button>
+                        </div>
 
                         <div className="range-pills">
                           {['1d', '5d', '1m', '1y'].map(r => (
@@ -465,7 +469,7 @@ function App() {
                         ) : errorA ? (
                           <div className="chart-error-msg">{errorA}</div>
                         ) : (
-                          <ResponsiveContainer width="100%" height={160}>
+                          <ResponsiveContainer width="100%" height={120}>
                             <AreaChart data={dataA} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                               <defs>
                                 <linearGradient id="colorA" x1="0" y1="0" x2="0" y2="1">
@@ -511,15 +515,23 @@ function App() {
                     {/* Chart B: Right Chart */}
                     <div className="chart-card-box">
                       <div className="chart-card-header-v2">
-                        <select 
-                          className="ticker-dropdown"
-                          value={tickerB}
-                          onChange={(e) => setTickerB(e.target.value)}
-                        >
-                          {SUPPORTED_TICKERS.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
+                        <div className="ticker-search-container">
+                          <input 
+                            type="text" 
+                            className="ticker-input" 
+                            value={tickerInputB} 
+                            onChange={(e) => setTickerInputB(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') setTickerB(tickerInputB.trim().toUpperCase()) }}
+                            list="tickers-list"
+                            placeholder="Enter ticker (e.g. TCS.NS)"
+                          />
+                          <button 
+                            className="ticker-search-btn"
+                            onClick={() => setTickerB(tickerInputB.trim().toUpperCase())}
+                          >
+                            Go
+                          </button>
+                        </div>
 
                         <div className="range-pills">
                           {['1d', '5d', '1m', '1y'].map(r => (
@@ -542,7 +554,7 @@ function App() {
                         ) : errorB ? (
                           <div className="chart-error-msg">{errorB}</div>
                         ) : (
-                          <ResponsiveContainer width="100%" height={160}>
+                          <ResponsiveContainer width="100%" height={120}>
                             <AreaChart data={dataB} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                               <defs>
                                 <linearGradient id="colorB" x1="0" y1="0" x2="0" y2="1">
@@ -763,6 +775,20 @@ function App() {
           </div>
         )}
       </main>
+
+      <datalist id="tickers-list">
+        <option value="RELIANCE.NS">Reliance Industries (NSE)</option>
+        <option value="TCS.NS">Tata Consultancy Services (NSE)</option>
+        <option value="INFY.NS">Infosys (NSE)</option>
+        <option value="HDFCBANK.NS">HDFC Bank (NSE)</option>
+        <option value="TATASTEEL.NS">Tata Steel (NSE)</option>
+        <option value="^NSEI">NIFTY 50 Index (NSE)</option>
+        <option value="^BSESN">SENSEX Index (BSE)</option>
+        <option value="AAPL">Apple Inc. (NASDAQ)</option>
+        <option value="MSFT">Microsoft Corp. (NASDAQ)</option>
+        <option value="GOOGL">Alphabet Inc. (NASDAQ)</option>
+        <option value="TSLA">Tesla Inc. (NASDAQ)</option>
+      </datalist>
     </div>
   );
 }
