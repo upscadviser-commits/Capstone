@@ -8,6 +8,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from extensions import db, migrate, bcrypt
 from models import User
+from tickers import search_tickers_db, TICKERS_DB
 
 app = Flask(__name__)
 
@@ -259,6 +260,16 @@ def get_market_data(current_user):
             "data": mock_data
         }), 200
 
+@app.route('/api/tickers/search', methods=['GET'])
+@token_required
+def search_tickers(current_user):
+    query = request.args.get('q', '').strip()
+    results = search_tickers_db(query)
+    return jsonify({
+        "query": query,
+        "results": results
+    }), 200
+
 @app.route('/api/chat', methods=['POST'])
 @token_required
 def chat(current_user):
@@ -273,16 +284,35 @@ def chat(current_user):
 
         # Analyze simple keywords to formulate context-aware answers
         msg_upper = message.upper()
-        if "AAPL" in msg_upper or "APPLE" in msg_upper:
-            reply = "I see you're interested in Apple Inc. (AAPL). Its pricing chart shows current trends on your dashboard. In Step 5, I'll connect ChromaDB to pull financial PDF filings and answer specific operational questions!"
-        elif "MSFT" in msg_upper or "MICROSOFT" in msg_upper:
-            reply = "Microsoft (MSFT) is a core ticker on our board. In the upcoming RAG integration step, I will be able to query its latest quarterly reports directly from ChromaDB vector stores."
-        elif "TSLA" in msg_upper or "TESLA" in msg_upper:
-            reply = "Tesla (TSLA) stock price is highly dynamic. Once ChromaDB is set up in Step 5, I will retrieve and analyze Tesla's investor letters to answer your questions with source citations."
-        elif "GOOG" in msg_upper or "ALPHABET" in msg_upper:
-            reply = "Google / Alphabet (GOOGL) has strong market presence. Step 5 will enable me to search Google's 10-K and 10-Q reports to provide grounded answers here."
+        
+        # Try to find a matching ticker or company name in TICKERS_DB
+        matched_ticker = None
+        for item in TICKERS_DB:
+            # Check if user message contains symbol exactly or name partially
+            name_parts = item["name"].upper().replace("LTD.", "").replace("CORP.", "").replace("INC.", "").split()
+            symbol_clean = item["symbol"].split('.')[0].upper()
+            
+            # If they mention the ticker symbol (e.g. RELIANCE.NS, TCS, AAPL)
+            if symbol_clean in msg_upper or item["symbol"].upper() in msg_upper:
+                matched_ticker = item
+                break
+                
+            # Or if they mention any significant part of the company name (e.g. "Reliance", "Infosys")
+            matched_by_name = False
+            for part in name_parts:
+                if len(part) > 3 and part in msg_upper:
+                    matched_by_name = True
+                    break
+            if matched_by_name:
+                matched_ticker = item
+                break
+                
+        if matched_ticker:
+            reply = f"I detected you are asking about {matched_ticker['name']} ({matched_ticker['symbol']}). " \
+                    f"Its stock data is loaded on the charts. " \
+                    f"In Step 5 (RAG Integration), I will query ChromaDB for its filings and financial reports to answer this with factual sources!"
         else:
-            reply = f"Hello {current_user.username}! I am your Market Intelligence assistant. I can see your message: '{message}'. In Step 5, we will set up ChromaDB to retrieve source-backed financial documents to answer in-depth queries."
+            reply = f"Hello {current_user.username}! I am your Market Intelligence assistant. I received your message: '{message}'. In Step 5, we will connect ChromaDB to retrieve context from financial documents and reports."
 
         return jsonify({
             "reply": reply,

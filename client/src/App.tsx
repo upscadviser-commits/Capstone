@@ -33,6 +33,164 @@ interface ChatMessage {
   time: string;
 }
 
+interface TickerItem {
+  symbol: string;
+  name: string;
+  category: string;
+  exchange: string;
+}
+
+const ALL_TICKERS: TickerItem[] = [
+  // Indices
+  { symbol: "^NSEI", name: "NIFTY 50 Index", category: "Indices", exchange: "NSE" },
+  { symbol: "^BSESN", name: "SENSEX Index", category: "Indices", exchange: "BSE" },
+  { symbol: "^DJI", name: "Dow Jones Industrial Average", category: "Indices", exchange: "DJI" },
+  { symbol: "^GSPC", name: "S&P 500 Index", category: "Indices", exchange: "S&P" },
+  { symbol: "^IXIC", name: "NASDAQ Composite", category: "Indices", exchange: "NASDAQ" },
+  
+  // Technology (India)
+  { symbol: "TCS.NS", name: "Tata Consultancy Services Ltd.", category: "Technology", exchange: "NSE" },
+  { symbol: "INFY.NS", name: "Infosys Ltd.", category: "Technology", exchange: "NSE" },
+  { symbol: "WIPRO.NS", name: "Wipro Ltd.", category: "Technology", exchange: "NSE" },
+  { symbol: "HCLTECH.NS", name: "HCL Technologies Ltd.", category: "Technology", exchange: "NSE" },
+  { symbol: "TECHM.NS", name: "Tech Mahindra Ltd.", category: "Technology", exchange: "NSE" },
+  
+  // Banking & Finance (India)
+  { symbol: "HDFCBANK.NS", name: "HDFC Bank Ltd.", category: "Banking", exchange: "NSE" },
+  { symbol: "ICICIBANK.NS", name: "ICICI Bank Ltd.", category: "Banking", exchange: "NSE" },
+  { symbol: "SBIN.NS", name: "State Bank of India", category: "Banking", exchange: "NSE" },
+  { symbol: "KOTAKBANK.NS", name: "Kotak Mahindra Bank Ltd.", category: "Banking", exchange: "NSE" },
+  { symbol: "AXISBANK.NS", name: "Axis Bank Ltd.", category: "Banking", exchange: "NSE" },
+  
+  // Energy & Utilities (India)
+  { symbol: "RELIANCE.NS", name: "Reliance Industries Ltd.", category: "Energy", exchange: "NSE" },
+  { symbol: "TATAPOWER.NS", name: "Tata Power Company Ltd.", category: "Energy", exchange: "NSE" },
+  { symbol: "ADANIGREEN.NS", name: "Adani Green Energy Ltd.", category: "Energy", exchange: "NSE" },
+  { symbol: "NTPC.NS", name: "NTPC Ltd.", category: "Energy", exchange: "NSE" },
+  
+  // Automotive & Industrials (India)
+  { symbol: "TATASTEEL.NS", name: "Tata Steel Ltd.", category: "Industrials", exchange: "NSE" },
+  { symbol: "TATAMOTORS.NS", name: "Tata Motors Ltd.", category: "Automotive", exchange: "NSE" },
+  { symbol: "LT.NS", name: "Larsen & Toubro Ltd.", category: "Industrials", exchange: "NSE" },
+  
+  // US Stocks
+  { symbol: "AAPL", name: "Apple Inc.", category: "US Stocks", exchange: "NASDAQ" },
+  { symbol: "MSFT", name: "Microsoft Corp.", category: "US Stocks", exchange: "NASDAQ" },
+  { symbol: "GOOGL", name: "Alphabet Inc.", category: "US Stocks", exchange: "NASDAQ" },
+  { symbol: "TSLA", name: "Tesla Inc.", category: "US Stocks", exchange: "NASDAQ" }
+];
+
+interface TickerDropdownSelectProps {
+  selectedSymbol: string;
+  onChange: (symbol: string) => void;
+  defaultCategoryFilter?: string;
+}
+
+function TickerDropdownSelect({ selectedSymbol, onChange, defaultCategoryFilter }: TickerDropdownSelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchVal, setSearchVal] = useState('');
+  const [activeCategory, setActiveCategory] = useState<string>(defaultCategoryFilter || 'Indices');
+
+  const selectedItem = ALL_TICKERS.find(t => t.symbol === selectedSymbol) || { symbol: selectedSymbol, name: selectedSymbol };
+
+  // Filtered search results when typing
+  const isSearching = searchVal.trim().length > 0;
+  const filteredTickers = isSearching 
+    ? ALL_TICKERS.filter(t => 
+        t.symbol.toLowerCase().includes(searchVal.toLowerCase()) || 
+        t.name.toLowerCase().includes(searchVal.toLowerCase())
+      )
+    : [];
+
+  const categories = Array.from(new Set(ALL_TICKERS.map(t => t.category)));
+
+  const handleSelectItem = (symbol: string) => {
+    onChange(symbol);
+    setSearchVal('');
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="custom-ticker-select-container">
+      {/* Searchable input as default */}
+      <input
+        type="text"
+        className="custom-ticker-input"
+        placeholder="Search company or ticker..."
+        value={isOpen ? searchVal : `${selectedItem.name} (${selectedItem.symbol})`}
+        onFocus={() => {
+          setIsOpen(true);
+          setSearchVal('');
+        }}
+        onChange={(e) => setSearchVal(e.target.value)}
+        onBlur={() => {
+          // Wait slightly before closing so click event on list triggers
+          setTimeout(() => setIsOpen(false), 250);
+        }}
+      />
+
+      {isOpen && (
+        <div className="custom-dropdown-panel" onMouseDown={(e) => e.preventDefault()}>
+          {isSearching ? (
+            /* Search results list */
+            <div className="search-results-list">
+              {filteredTickers.length > 0 ? (
+                filteredTickers.map(t => (
+                  <button
+                    key={t.symbol}
+                    className="dropdown-item"
+                    type="button"
+                    onClick={() => handleSelectItem(t.symbol)}
+                  >
+                    <span className="item-symbol">{t.symbol}</span>
+                    <span className="item-name">{t.name}</span>
+                  </button>
+                ))
+              ) : (
+                <div className="dropdown-no-results">No companies found</div>
+              )}
+            </div>
+          ) : (
+            /* Category browse view */
+            <div className="category-browse-view">
+              <div className="category-tabs-bar">
+                {categories.map(cat => {
+                  // If defaultCategoryFilter is Indices, hide other tabs to fulfill indices-only constraint if wanted,
+                  // but user actually said "the first drop down global indices should only show the indices and not company shares."
+                  // So we will filter tickers so that Indices category only lists indices, which we already do!
+                  return (
+                    <button
+                      key={cat}
+                      className={`category-tab-btn ${activeCategory === cat ? 'active' : ''}`}
+                      type="button"
+                      onClick={() => setActiveCategory(cat)}
+                    >
+                      {cat}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="category-items-list">
+                {ALL_TICKERS.filter(t => t.category === activeCategory).map(t => (
+                  <button
+                    key={t.symbol}
+                    className="dropdown-item"
+                    type="button"
+                    onClick={() => handleSelectItem(t.symbol)}
+                  >
+                    <span className="item-symbol">{t.symbol}</span>
+                    <span className="item-name">{t.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function App() {
   // Authentication states
@@ -56,18 +214,16 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
 
-  // Chart A states (Left Chart)
-  const [tickerA, setTickerA] = useState<string>('AAPL');
-  const [tickerInputA, setTickerInputA] = useState<string>('AAPL');
+  // Chart A states (Top Chart)
+  const [tickerA, setTickerA] = useState<string>('^NSEI');
   const [rangeA, setRangeA] = useState<string>('1d');
   const [dataA, setDataA] = useState<StockPoint[]>([]);
   const [loadingA, setLoadingA] = useState<boolean>(false);
   const [errorA, setErrorA] = useState<string>('');
   const [sourceA, setSourceA] = useState<string>('');
 
-  // Chart B states (Right Chart)
-  const [tickerB, setTickerB] = useState<string>('MSFT');
-  const [tickerInputB, setTickerInputB] = useState<string>('MSFT');
+  // Chart B states (Bottom Chart)
+  const [tickerB, setTickerB] = useState<string>('RELIANCE.NS');
   const [rangeB, setRangeB] = useState<string>('1d');
   const [dataB, setDataB] = useState<StockPoint[]>([]);
   const [loadingB, setLoadingB] = useState<boolean>(false);
@@ -430,23 +586,11 @@ function App() {
                     {/* Chart A: Left Chart */}
                     <div className="chart-card-box">
                       <div className="chart-card-header-v2">
-                        <div className="ticker-search-container">
-                          <input 
-                            type="text" 
-                            className="ticker-input" 
-                            value={tickerInputA} 
-                            onChange={(e) => setTickerInputA(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') setTickerA(tickerInputA.trim().toUpperCase()) }}
-                            list="tickers-list"
-                            placeholder="Enter ticker (e.g. RELIANCE.NS)"
-                          />
-                          <button 
-                            className="ticker-search-btn"
-                            onClick={() => setTickerA(tickerInputA.trim().toUpperCase())}
-                          >
-                            Go
-                          </button>
-                        </div>
+                        <TickerDropdownSelect 
+                          selectedSymbol={tickerA} 
+                          onChange={(symbol) => setTickerA(symbol)} 
+                          defaultCategoryFilter="Indices"
+                        />
 
                         <div className="range-pills">
                           {['1d', '5d', '1m', '1y'].map(r => (
@@ -515,23 +659,11 @@ function App() {
                     {/* Chart B: Right Chart */}
                     <div className="chart-card-box">
                       <div className="chart-card-header-v2">
-                        <div className="ticker-search-container">
-                          <input 
-                            type="text" 
-                            className="ticker-input" 
-                            value={tickerInputB} 
-                            onChange={(e) => setTickerInputB(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') setTickerB(tickerInputB.trim().toUpperCase()) }}
-                            list="tickers-list"
-                            placeholder="Enter ticker (e.g. TCS.NS)"
-                          />
-                          <button 
-                            className="ticker-search-btn"
-                            onClick={() => setTickerB(tickerInputB.trim().toUpperCase())}
-                          >
-                            Go
-                          </button>
-                        </div>
+                        <TickerDropdownSelect 
+                          selectedSymbol={tickerB} 
+                          onChange={(symbol) => setTickerB(symbol)} 
+                          defaultCategoryFilter="Technology"
+                        />
 
                         <div className="range-pills">
                           {['1d', '5d', '1m', '1y'].map(r => (
@@ -775,20 +907,6 @@ function App() {
           </div>
         )}
       </main>
-
-      <datalist id="tickers-list">
-        <option value="RELIANCE.NS">Reliance Industries (NSE)</option>
-        <option value="TCS.NS">Tata Consultancy Services (NSE)</option>
-        <option value="INFY.NS">Infosys (NSE)</option>
-        <option value="HDFCBANK.NS">HDFC Bank (NSE)</option>
-        <option value="TATASTEEL.NS">Tata Steel (NSE)</option>
-        <option value="^NSEI">NIFTY 50 Index (NSE)</option>
-        <option value="^BSESN">SENSEX Index (BSE)</option>
-        <option value="AAPL">Apple Inc. (NASDAQ)</option>
-        <option value="MSFT">Microsoft Corp. (NASDAQ)</option>
-        <option value="GOOGL">Alphabet Inc. (NASDAQ)</option>
-        <option value="TSLA">Tesla Inc. (NASDAQ)</option>
-      </datalist>
     </div>
   );
 }
