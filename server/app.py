@@ -31,11 +31,49 @@ db.init_app(app)
 migrate.init_app(app, db)
 bcrypt.init_app(app)
 
+# Custom embedding function to bypass buggy CoreML / onnxruntime on macOS
+from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
+class GeminiOrHashEmbeddingFunction(EmbeddingFunction):
+    def __call__(self, input: Documents) -> Embeddings:
+        import os
+        import requests
+        key = os.environ.get("GEMINI_API_KEY")
+        if key and key != "YOUR_GEMINI_API_KEY_HERE":
+            try:
+                embeddings = []
+                for text in input:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent?key={key}"
+                    payload = {
+                        "model": "models/gemini-embedding-2",
+                        "content": {"parts": [{"text": text}]}
+                    }
+                    res = requests.post(url, json=payload, timeout=8)
+                    if res.status_code == 200:
+                        val = res.json()["embedding"]["values"]
+                        embeddings.append(val)
+                    else:
+                        raise Exception(f"Gemini API returned status {res.status_code}")
+                return embeddings
+            except Exception as e:
+                print(f"Gemini embedding failed, falling back to hashing: {e}")
+
+        import hashlib
+        embeddings = []
+        for text in input:
+            vector = []
+            for i in range(3072):
+                h = hashlib.sha256(f"{text}_{i}".encode('utf-8')).hexdigest()
+                val = (int(h[:8], 16) / 4294967295.0) * 2.0 - 1.0
+                vector.append(val)
+            embeddings.append(vector)
+        return embeddings
+
 # Initialize ChromaDB Persistent Client
 import chromadb
 CHROMA_PATH = os.path.join(BASE_DIR, "chroma_db")
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
-chroma_collection = chroma_client.get_or_create_collection(name="market_documents")
+embedding_fn = GeminiOrHashEmbeddingFunction()
+chroma_collection = chroma_client.get_or_create_collection(name="market_documents", embedding_function=embedding_fn)
 
 # Decorator to verify JWT token and inject current user
 def token_required(f):

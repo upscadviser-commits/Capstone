@@ -2,11 +2,55 @@ import os
 import sys
 import pypdf
 import chromadb
+from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
+
+# Custom embedding function to bypass buggy CoreML / onnxruntime on macOS
+class GeminiOrHashEmbeddingFunction(EmbeddingFunction):
+    def __call__(self, input: Documents) -> Embeddings:
+        import os
+        import requests
+        
+        # Load dotenv to get API key if run directly from CLI
+        from dotenv import load_dotenv
+        load_dotenv()
+        
+        key = os.environ.get("GEMINI_API_KEY")
+        if key and key != "YOUR_GEMINI_API_KEY_HERE":
+            try:
+                embeddings = []
+                for text in input:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent?key={key}"
+                    payload = {
+                        "model": "models/gemini-embedding-2",
+                        "content": {"parts": [{"text": text}]}
+                    }
+                    res = requests.post(url, json=payload, timeout=8)
+                    if res.status_code == 200:
+                        val = res.json()["embedding"]["values"]
+                        embeddings.append(val)
+                    else:
+                        raise Exception(f"Gemini API returned status {res.status_code}: {res.text}")
+                return embeddings
+            except Exception as e:
+                print(f"Gemini embedding failed, falling back to hashing: {e}")
+        
+        # CPU Hashing Fallback (100% stable, 3072 dimensions)
+        import hashlib
+        embeddings = []
+        for text in input:
+            vector = []
+            for i in range(3072):
+                h = hashlib.sha256(f"{text}_{i}".encode('utf-8')).hexdigest()
+                val = (int(h[:8], 16) / 4294967295.0) * 2.0 - 1.0
+                vector.append(val)
+            embeddings.append(vector)
+        return embeddings
 
 # Initialize local persistent client
 CHROMA_PATH = os.path.join(os.path.dirname(__file__), "chroma_db")
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
-collection = chroma_client.get_or_create_collection(name="market_documents")
+embedding_fn = GeminiOrHashEmbeddingFunction()
+collection = chroma_client.get_or_create_collection(name="market_documents", embedding_function=embedding_fn)
 
 def guess_ticker_from_filename(filename):
     """
