@@ -263,12 +263,79 @@ def get_market_data(current_user):
 @app.route('/api/tickers/search', methods=['GET'])
 @token_required
 def search_tickers(current_user):
+    import requests
     query = request.args.get('q', '').strip()
-    results = search_tickers_db(query)
-    return jsonify({
-        "query": query,
-        "results": results
-    }), 200
+    
+    if not query:
+        # Return default popular selections
+        from tickers import TICKERS_DB
+        return jsonify({
+            "query": query,
+            "results": TICKERS_DB,
+            "source": "local_defaults"
+        }), 200
+
+    try:
+        # Query Yahoo Finance search lookup API
+        url = "https://query2.finance.yahoo.com/v1/finance/search"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        params = {
+            "q": query,
+            "quotesCount": 15,
+            "newsCount": 0
+        }
+        response = requests.get(url, params=params, headers=headers, timeout=5)
+        
+        if response.status_code != 200:
+            # Fallback to local filtering
+            from tickers import search_tickers_db
+            local_results = search_tickers_db(query)
+            return jsonify({
+                "query": query,
+                "results": local_results,
+                "source": "local_fallback_http_error"
+            }), 200
+
+        data = response.json()
+        quotes = data.get("quotes", [])
+        
+        results = []
+        for q in quotes:
+            quote_type = q.get("quoteType", "")
+            # Only include stock assets and market indices
+            if quote_type not in ["EQUITY", "INDEX"]:
+                continue
+                
+            symbol = q.get("symbol", "")
+            name = q.get("shortname") or q.get("longname") or symbol
+            exchange = q.get("exchange", "")
+            sector = q.get("sector") or q.get("industry") or ("Indices" if quote_type == "INDEX" else "Stock")
+            
+            results.append({
+                "symbol": symbol,
+                "name": name,
+                "category": sector,
+                "exchange": exchange
+            })
+            
+        return jsonify({
+            "query": query,
+            "results": results,
+            "source": "yfinance_api"
+        }), 200
+
+    except Exception as e:
+        print(f"Error in tickers search API: {str(e)}")
+        # Fallback to local search
+        from tickers import search_tickers_db
+        local_results = search_tickers_db(query)
+        return jsonify({
+            "query": query,
+            "results": local_results,
+            "source": "local_fallback_exception"
+        }), 200
 
 @app.route('/api/chat', methods=['POST'])
 @token_required

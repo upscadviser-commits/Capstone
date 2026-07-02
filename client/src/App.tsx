@@ -84,23 +84,59 @@ interface TickerDropdownSelectProps {
   selectedSymbol: string;
   onChange: (symbol: string) => void;
   defaultCategoryFilter?: string;
+  authToken: string | null;
 }
 
-function TickerDropdownSelect({ selectedSymbol, onChange, defaultCategoryFilter }: TickerDropdownSelectProps) {
+function TickerDropdownSelect({ selectedSymbol, onChange, defaultCategoryFilter, authToken }: TickerDropdownSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchVal, setSearchVal] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>(defaultCategoryFilter || 'Indices');
+  const [tickersList, setTickersList] = useState<TickerItem[]>(ALL_TICKERS);
+  const [loadingResults, setLoadingResults] = useState(false);
 
   const selectedItem = ALL_TICKERS.find(t => t.symbol === selectedSymbol) || { symbol: selectedSymbol, name: selectedSymbol };
 
   // Filtered search results when typing
   const isSearching = searchVal.trim().length > 0;
-  const filteredTickers = isSearching 
-    ? ALL_TICKERS.filter(t => 
-        t.symbol.toLowerCase().includes(searchVal.toLowerCase()) || 
-        t.name.toLowerCase().includes(searchVal.toLowerCase())
-      )
-    : [];
+
+  // Debounced API fetch for tickers search
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (searchVal.trim() === '') {
+      setTickersList(ALL_TICKERS);
+      return;
+    }
+
+    const delayDebounce = setTimeout(async () => {
+      setLoadingResults(true);
+      try {
+        const response = await fetch(`http://localhost:5000/api/tickers/search?q=${encodeURIComponent(searchVal)}`, {
+          headers: {
+            'Authorization': `Bearer ${authToken}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setTickersList(data.results || []);
+        } else {
+          throw new Error('API error response');
+        }
+      } catch (err) {
+        console.error('Error fetching live search results:', err);
+        // Fallback to local filter of popular defaults
+        const filtered = ALL_TICKERS.filter(t => 
+          t.symbol.toLowerCase().includes(searchVal.toLowerCase()) || 
+          t.name.toLowerCase().includes(searchVal.toLowerCase())
+        );
+        setTickersList(filtered);
+      } finally {
+        setLoadingResults(false);
+      }
+    }, 200); // 200ms debounce
+
+    return () => clearTimeout(delayDebounce);
+  }, [searchVal, isOpen, authToken]);
 
   const categories = Array.from(new Set(ALL_TICKERS.map(t => t.category)));
 
@@ -116,7 +152,7 @@ function TickerDropdownSelect({ selectedSymbol, onChange, defaultCategoryFilter 
       <input
         type="text"
         className="custom-ticker-input"
-        placeholder="Search company or ticker..."
+        placeholder="Search company or ticker (e.g. TCS.NS)..."
         value={isOpen ? searchVal : `${selectedItem.name} (${selectedItem.symbol})`}
         onFocus={() => {
           setIsOpen(true);
@@ -134,8 +170,10 @@ function TickerDropdownSelect({ selectedSymbol, onChange, defaultCategoryFilter 
           {isSearching ? (
             /* Search results list */
             <div className="search-results-list">
-              {filteredTickers.length > 0 ? (
-                filteredTickers.map(t => (
+              {loadingResults ? (
+                <div className="dropdown-no-results">Searching...</div>
+              ) : tickersList.length > 0 ? (
+                tickersList.map(t => (
                   <button
                     key={t.symbol}
                     className="dropdown-item"
@@ -154,21 +192,16 @@ function TickerDropdownSelect({ selectedSymbol, onChange, defaultCategoryFilter 
             /* Category browse view */
             <div className="category-browse-view">
               <div className="category-tabs-bar">
-                {categories.map(cat => {
-                  // If defaultCategoryFilter is Indices, hide other tabs to fulfill indices-only constraint if wanted,
-                  // but user actually said "the first drop down global indices should only show the indices and not company shares."
-                  // So we will filter tickers so that Indices category only lists indices, which we already do!
-                  return (
-                    <button
-                      key={cat}
-                      className={`category-tab-btn ${activeCategory === cat ? 'active' : ''}`}
-                      type="button"
-                      onClick={() => setActiveCategory(cat)}
-                    >
-                      {cat}
-                    </button>
-                  );
-                })}
+                {categories.map(cat => (
+                  <button
+                    key={cat}
+                    className={`category-tab-btn ${activeCategory === cat ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => setActiveCategory(cat)}
+                  >
+                    {cat}
+                  </button>
+                ))}
               </div>
               <div className="category-items-list">
                 {ALL_TICKERS.filter(t => t.category === activeCategory).map(t => (
@@ -590,6 +623,7 @@ function App() {
                           selectedSymbol={tickerA} 
                           onChange={(symbol) => setTickerA(symbol)} 
                           defaultCategoryFilter="Indices"
+                          authToken={token}
                         />
 
                         <div className="range-pills">
@@ -663,6 +697,7 @@ function App() {
                           selectedSymbol={tickerB} 
                           onChange={(symbol) => setTickerB(symbol)} 
                           defaultCategoryFilter="Technology"
+                          authToken={token}
                         />
 
                         <div className="range-pills">
