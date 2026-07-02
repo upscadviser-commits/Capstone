@@ -263,6 +263,40 @@ def get_market_data(current_user):
             "data": mock_data
         }), 200
 
+@app.route('/api/chat', methods=['POST'])
+@token_required
+def chat(current_user):
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        message = data.get('message', '').strip()
+        if not message:
+            return jsonify({"error": "Message content cannot be empty"}), 400
+
+        # Analyze simple keywords to formulate context-aware answers
+        msg_upper = message.upper()
+        if "AAPL" in msg_upper or "APPLE" in msg_upper:
+            reply = "I see you're interested in Apple Inc. (AAPL). Its pricing chart shows current trends on your dashboard. In Step 5, I'll connect ChromaDB to pull financial PDF filings and answer specific operational questions!"
+        elif "MSFT" in msg_upper or "MICROSOFT" in msg_upper:
+            reply = "Microsoft (MSFT) is a core ticker on our board. In the upcoming RAG integration step, I will be able to query its latest quarterly reports directly from ChromaDB vector stores."
+        elif "TSLA" in msg_upper or "TESLA" in msg_upper:
+            reply = "Tesla (TSLA) stock price is highly dynamic. Once ChromaDB is set up in Step 5, I will retrieve and analyze Tesla's investor letters to answer your questions with source citations."
+        elif "GOOG" in msg_upper or "ALPHABET" in msg_upper:
+            reply = "Google / Alphabet (GOOGL) has strong market presence. Step 5 will enable me to search Google's 10-K and 10-Q reports to provide grounded answers here."
+        else:
+            reply = f"Hello {current_user.username}! I am your Market Intelligence assistant. I can see your message: '{message}'. In Step 5, we will set up ChromaDB to retrieve source-backed financial documents to answer in-depth queries."
+
+        return jsonify({
+            "reply": reply,
+            "user_message": message,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
 if __name__ == '__main__':
     # Run server on port 5000
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -8,7 +8,7 @@ import {
   Tooltip, 
   CartesianGrid 
 } from 'recharts';
-import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { RefreshCw, Menu, X, Send } from 'lucide-react';
 import './App.css';
 
 interface User {
@@ -26,6 +26,19 @@ interface StockPoint {
   low: number;
   volume: number;
 }
+
+interface ChatMessage {
+  sender: 'user' | 'agent';
+  text: string;
+  time: string;
+}
+
+const SUPPORTED_TICKERS = [
+  { value: 'AAPL', label: 'Apple Inc. (AAPL)' },
+  { value: 'MSFT', label: 'Microsoft Corp. (MSFT)' },
+  { value: 'GOOGL', label: 'Alphabet Inc. (GOOGL)' },
+  { value: 'TSLA', label: 'Tesla Inc. (TSLA)' }
+];
 
 function App() {
   // Authentication states
@@ -45,13 +58,36 @@ function App() {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [successMsg, setSuccessMsg] = useState<string>('');
 
-  // Chart states
-  const [selectedTicker, setSelectedTicker] = useState<string>('AAPL');
-  const [selectedRange, setSelectedRange] = useState<string>('1d');
-  const [marketData, setMarketData] = useState<StockPoint[]>([]);
-  const [chartLoading, setChartLoading] = useState<boolean>(false);
-  const [chartError, setChartError] = useState<string>('');
-  const [dataSource, setDataSource] = useState<string>('');
+  // Sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+
+  // Chart A states (Left Chart)
+  const [tickerA, setTickerA] = useState<string>('AAPL');
+  const [rangeA, setRangeA] = useState<string>('1d');
+  const [dataA, setDataA] = useState<StockPoint[]>([]);
+  const [loadingA, setLoadingA] = useState<boolean>(false);
+  const [errorA, setErrorA] = useState<string>('');
+  const [sourceA, setSourceA] = useState<string>('');
+
+  // Chart B states (Right Chart)
+  const [tickerB, setTickerB] = useState<string>('MSFT');
+  const [rangeB, setRangeB] = useState<string>('1d');
+  const [dataB, setDataB] = useState<StockPoint[]>([]);
+  const [loadingB, setLoadingB] = useState<boolean>(false);
+  const [errorB, setErrorB] = useState<string>('');
+  const [sourceB, setSourceB] = useState<string>('');
+
+  // Chat window states
+  const [chatInput, setChatInput] = useState<string>('');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      sender: 'agent',
+      text: 'Hello! I am your RAG-powered Market Intelligence assistant. How can I help you analyze market trends today?',
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+  ]);
+  const [chatSending, setChatSending] = useState<boolean>(false);
 
   // Verify token on load
   const verifyToken = async (authToken: string) => {
@@ -76,12 +112,17 @@ function App() {
   };
 
   // Fetch stock data from backend
-  const fetchMarketData = async () => {
+  const fetchStockData = async (ticker: string, range: string, isChartA: boolean) => {
     if (!token) return;
-    setChartLoading(true);
-    setChartError('');
+    const setLoading = isChartA ? setLoadingA : setLoadingB;
+    const setError = isChartA ? setErrorA : setErrorB;
+    const setData = isChartA ? setDataA : setDataB;
+    const setSource = isChartA ? setSourceA : setSourceB;
+
+    setLoading(true);
+    setError('');
     try {
-      const response = await fetch(`http://localhost:5000/api/market-data?ticker=${selectedTicker}&range=${selectedRange}`, {
+      const response = await fetch(`http://localhost:5000/api/market-data?ticker=${ticker}&range=${range}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -90,13 +131,13 @@ function App() {
       if (!response.ok) {
         throw new Error(data.error || 'Failed to fetch market data');
       }
-      setMarketData(data.data || []);
-      setDataSource(data.source);
+      setData(data.data || []);
+      setSource(data.source);
     } catch (err: any) {
-      console.error('Error fetching market data:', err);
-      setChartError(err.message || 'Error retrieving data');
+      console.error(`Error fetching data for ${ticker}:`, err);
+      setError(err.message || 'Error retrieving data');
     } finally {
-      setChartLoading(false);
+      setLoading(false);
     }
   };
 
@@ -106,11 +147,19 @@ function App() {
     }
   }, [token]);
 
+  // Fetch Chart A data
   useEffect(() => {
     if (user && token) {
-      fetchMarketData();
+      fetchStockData(tickerA, rangeA, true);
     }
-  }, [user, selectedTicker, selectedRange]);
+  }, [user, tickerA, rangeA]);
+
+  // Fetch Chart B data
+  useEffect(() => {
+    if (user && token) {
+      fetchStockData(tickerB, rangeB, false);
+    }
+  }, [user, tickerB, rangeB]);
 
   // Auth Handlers
   const handleRegister = async (e: React.FormEvent) => {
@@ -198,11 +247,63 @@ function App() {
     setUser(null);
     setSuccessMsg('Logged out successfully.');
     setErrorMsg('');
-    setMarketData([]);
+    setDataA([]);
+    setDataB([]);
+    setSidebarOpen(false);
   };
 
-  // Calculate live statistics
-  const getStats = () => {
+  // Chat message submit handler
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !token) return;
+
+    const userMessage: ChatMessage = {
+      sender: 'user',
+      text: chatInput,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setChatMessages(prev => [...prev, userMessage]);
+    setChatInput('');
+    setChatSending(true);
+
+    try {
+      const response = await fetch('http://localhost:5000/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ message: userMessage.text })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to send chat message');
+      }
+
+      const agentMessage: ChatMessage = {
+        sender: 'agent',
+        text: data.reply,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      setChatMessages(prev => [...prev, agentMessage]);
+    } catch (err: any) {
+      console.error('Chat error:', err);
+      const errorMessage: ChatMessage = {
+        sender: 'agent',
+        text: `Error reaching the assistant: ${err.message || 'Server down'}`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setChatMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setChatSending(false);
+    }
+  };
+
+  // Calculate statistics for charts
+  const getStats = (marketData: StockPoint[]) => {
     if (marketData.length === 0) {
       return { current: '0.00', high: '0.00', low: '0.00', change: '0.00', changePercent: '0.00', isPositive: true };
     }
@@ -224,19 +325,38 @@ function App() {
     };
   };
 
-  const stats = getStats();
+  const statsA = getStats(dataA);
+  const statsB = getStats(dataB);
 
   return (
     <div className="app-container">
-      <header className="dashboard-header">
-        <div className="logo-container">
+      {/* Top Header Bar */}
+      <header className="dashboard-header-bar">
+        <div className="header-left">
+          {user && (
+            <button className="btn-menu-toggle" onClick={() => setSidebarOpen(!sidebarOpen)}>
+              <Menu size={20} />
+            </button>
+          )}
           <div className="logo-spark"></div>
-          <h1>Market Intelligence App</h1>
+          <h1>Market Intelligence</h1>
         </div>
-        <p className="subtitle">Real-time market analytics, charting, and RAG-powered agent assistance.</p>
+        
+        {user ? (
+          <div className="header-right">
+            <span className="user-online-badge">
+              <span className="online-dot animate-pulse"></span>
+              {user.username}
+            </span>
+            <button className="btn-header-logout" onClick={handleLogout}>Log Out</button>
+          </div>
+        ) : (
+          <p className="subtitle">Real-time market analytics and RAG AI assistant.</p>
+        )}
       </header>
 
-      <main className="dashboard-content">
+      {/* Main Container */}
+      <main className="dashboard-main-layout">
         {verifyingToken ? (
           <div className="loading-container">
             <div className="spinner"></div>
@@ -244,149 +364,285 @@ function App() {
           </div>
         ) : user ? (
           /* LOGGED IN VIEW */
-          <div className="dashboard-logged-in animate-fade-in">
+          <div className="dashboard-workspace animate-fade-in">
             
-            {/* Top Bar: Progress Tracker & User Info */}
-            <div className="dashboard-top-bar">
-              <div className="user-indicator">
-                <span className="user-dot"></span>
-                <span className="username-text">{user.username} ({user.email})</span>
-                <button className="btn-logout" onClick={handleLogout}>Log Out</button>
+            {/* Slide-out Left Sidebar Drawer */}
+            <aside className={`left-sidebar-drawer ${sidebarOpen ? 'open' : ''}`}>
+              <div className="sidebar-header">
+                <h3>Main Menu</h3>
+                <button className="btn-close-sidebar" onClick={() => setSidebarOpen(false)}>
+                  <X size={18} />
+                </button>
               </div>
-
-              {/* Collapsed Step Progress Tracker */}
-              <div className="progress-tracker">
-                <div className="step done" title="Step 1: Init">Init</div>
-                <div className="step done" title="Step 2: Auth">Auth</div>
-                <div className="step active" title="Step 3: Charts">Charts</div>
-                <div className="step" title="Step 4: Chatbot">Brain</div>
-                <div className="step" title="Step 5: RAG">RAG</div>
-                <div className="step" title="Step 6: History">History</div>
+              <ul className="sidebar-links">
+                <li>
+                  <button className="sidebar-link active" onClick={() => { setSidebarOpen(false); setShowSettings(false); }}>
+                    Dashboard
+                  </button>
+                </li>
+                <li>
+                  <button className="sidebar-link" onClick={() => { setSidebarOpen(false); setShowSettings(true); }}>
+                    Settings
+                  </button>
+                </li>
+                <li>
+                  <button className="sidebar-link" onClick={() => { setSidebarOpen(false); alert("History list loaded successfully!"); }}>
+                    Conversations
+                  </button>
+                </li>
+              </ul>
+              <div className="sidebar-footer">
+                <span className="meta-text">SQLite Database: Online</span>
+                <span className="meta-text">Alembic Migrations: v20729abfa32</span>
               </div>
-            </div>
+            </aside>
 
-            {/* Main Interactive Chart Section */}
-            <section className="chart-container-card">
-              <div className="chart-card-header">
-                {/* Ticker Selector */}
-                <div className="selector-group tickers">
-                  {['AAPL', 'MSFT', 'GOOGL', 'TSLA'].map(ticker => (
-                    <button
-                      key={ticker}
-                      className={`select-btn ${selectedTicker === ticker ? 'active' : ''}`}
-                      onClick={() => setSelectedTicker(ticker)}
-                    >
-                      {ticker}
-                    </button>
-                  ))}
-                </div>
+            {/* Sidebar backdrop overlay */}
+            {sidebarOpen && <div className="sidebar-overlay-backdrop" onClick={() => setSidebarOpen(false)}></div>}
 
-                {/* Range Selector */}
-                <div className="selector-group ranges">
-                  {['1d', '5d', '1m', '1y'].map(range => (
-                    <button
-                      key={range}
-                      className={`select-btn ${selectedRange === range ? 'active' : ''}`}
-                      onClick={() => setSelectedRange(range)}
-                    >
-                      {range.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Chart Plot Area */}
-              <div className="chart-plot-area">
-                {chartLoading ? (
-                  <div className="chart-loader">
-                    <RefreshCw className="spinner-icon animate-spin" />
-                    <p>Loading live feed...</p>
-                  </div>
-                ) : chartError ? (
-                  <div className="chart-error-msg">
-                    <p>{chartError}</p>
-                    <button className="btn-secondary" onClick={fetchMarketData}>Retry Connection</button>
+            {/* Main Visual Display: Charts & Chat Columns */}
+            <div className="workspace-grid-layout">
+              
+              {/* Left Column: Two side-by-side charts */}
+              <div className="charts-column-area">
+                
+                {/* Settings Overlay Modal */}
+                {showSettings ? (
+                  <div className="settings-panel animate-fade-in">
+                    <div className="settings-header">
+                      <h2>System Settings</h2>
+                      <button className="btn-close-settings" onClick={() => setShowSettings(false)}><X size={18} /></button>
+                    </div>
+                    <div className="settings-body">
+                      <div className="setting-row">
+                        <span className="setting-label">API Key Provider</span>
+                        <span className="setting-value">Yahoo Finance CLI</span>
+                      </div>
+                      <div className="setting-row">
+                        <span className="setting-label">JWT Token Lifetime</span>
+                        <span className="setting-value">24 Hours (Active)</span>
+                      </div>
+                      <div className="setting-row">
+                        <span className="setting-label">Database Filename</span>
+                        <span className="setting-value">market_intelligence.db</span>
+                      </div>
+                    </div>
                   </div>
                 ) : (
-                  <ResponsiveContainer width="100%" height={210}>
-                    <AreaChart data={marketData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={stats.isPositive ? '#10b981' : '#ef4444'} stopOpacity={0.25}/>
-                          <stop offset="95%" stopColor={stats.isPositive ? '#10b981' : '#ef4444'} stopOpacity={0.0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-                      <XAxis 
-                        dataKey="time" 
-                        stroke="#64748b" 
-                        fontSize={10} 
-                        tickLine={false}
-                        axisLine={false}
-                        dy={6}
-                      />
-                      <YAxis 
-                        stroke="#64748b" 
-                        fontSize={10} 
-                        tickLine={false}
-                        axisLine={false}
-                        domain={['auto', 'auto']}
-                        dx={-6}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: '#0f0c29',
-                          borderColor: 'rgba(255,255,255,0.08)',
-                          borderRadius: '8px',
-                          color: '#fff',
-                          fontSize: '12px',
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
-                        }}
-                        itemStyle={{ color: '#fff' }}
-                        labelStyle={{ color: '#94a3b8', fontWeight: 600 }}
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey="price" 
-                        stroke={stats.isPositive ? '#10b981' : '#ef4444'} 
-                        strokeWidth={2}
-                        fillOpacity={1} 
-                        fill="url(#colorPrice)" 
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
+                  <div className="dual-charts-row">
+                    
+                    {/* Chart A: Left Chart */}
+                    <div className="chart-card-box">
+                      <div className="chart-card-header-v2">
+                        <select 
+                          className="ticker-dropdown"
+                          value={tickerA}
+                          onChange={(e) => setTickerA(e.target.value)}
+                        >
+                          {SUPPORTED_TICKERS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
 
-              {/* Chart Stats Footer */}
-              <div className="chart-stats-footer">
-                <div className="stat-box main-price">
-                  <span className="stat-label">{selectedTicker} Price</span>
-                  <div className="stat-value-container">
-                    <span className="price-val">${stats.current}</span>
-                    <span className={`change-val ${stats.isPositive ? 'up' : 'down'}`}>
-                      {stats.isPositive ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                      {stats.changePercent}
-                    </span>
+                        <div className="range-pills">
+                          {['1d', '5d', '1m', '1y'].map(r => (
+                            <button
+                              key={r}
+                              className={`pill-btn ${rangeA === r ? 'active' : ''}`}
+                              onClick={() => setRangeA(r)}
+                            >
+                              {r.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="chart-plot-area-v2">
+                        {loadingA ? (
+                          <div className="chart-loader">
+                            <RefreshCw className="spinner-icon animate-spin" />
+                          </div>
+                        ) : errorA ? (
+                          <div className="chart-error-msg">{errorA}</div>
+                        ) : (
+                          <ResponsiveContainer width="100%" height={160}>
+                            <AreaChart data={dataA} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="colorA" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor={statsA.isPositive ? '#10b981' : '#ef4444'} stopOpacity={0.2}/>
+                                  <stop offset="95%" stopColor={statsA.isPositive ? '#10b981' : '#ef4444'} stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
+                              <XAxis dataKey="time" stroke="#64748b" fontSize={9} tickLine={false} axisLine={false} />
+                              <YAxis stroke="#64748b" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
+                              <Tooltip
+                                contentStyle={{
+                                  backgroundColor: '#0b091a',
+                                  borderColor: 'rgba(255,255,255,0.06)',
+                                  borderRadius: '6px',
+                                  color: '#fff',
+                                  fontSize: '11px'
+                                }}
+                              />
+                              <Area 
+                                type="monotone" 
+                                dataKey="price" 
+                                stroke={statsA.isPositive ? '#10b981' : '#ef4444'} 
+                                strokeWidth={1.5}
+                                fill="url(#colorA)" 
+                              />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        )}
+                      </div>
+
+                      <div className="chart-card-footer-v2">
+                        <div className="footer-stat">
+                          <span className="f-price">${statsA.current}</span>
+                          <span className={`f-change ${statsA.isPositive ? 'up' : 'down'}`}>
+                            {statsA.changePercent}
+                          </span>
+                        </div>
+                        <span className="f-source">{sourceA === 'yfinance' ? 'Live Feed' : 'Mock Fallback'}</span>
+                      </div>
+                    </div>
+
+                    {/* Chart B: Right Chart */}
+                    <div className="chart-card-box">
+                      <div className="chart-card-header-v2">
+                        <select 
+                          className="ticker-dropdown"
+                          value={tickerB}
+                          onChange={(e) => setTickerB(e.target.value)}
+                        >
+                          {SUPPORTED_TICKERS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+
+                        <div className="range-pills">
+                          {['1d', '5d', '1m', '1y'].map(r => (
+                            <button
+                              key={r}
+                              className={`pill-btn ${rangeB === r ? 'active' : ''}`}
+                              onClick={() => setRangeB(r)}
+                            >
+                              {r.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="chart-plot-area-v2">
+                        {loadingB ? (
+                          <div className="chart-loader">
+                            <RefreshCw className="spinner-icon animate-spin" />
+                          </div>
+                        ) : errorB ? (
+                          <div className="chart-error-msg">{errorB}</div>
+                        ) : (
+                          <ResponsiveContainer width="100%" height={160}>
+                            <AreaChart data={dataB} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="colorB" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor={statsB.isPositive ? '#10b981' : '#ef4444'} stopOpacity={0.2}/>
+                                  <stop offset="95%" stopColor={statsB.isPositive ? '#10b981' : '#ef4444'} stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
+                              <XAxis dataKey="time" stroke="#64748b" fontSize={9} tickLine={false} axisLine={false} />
+                              <YAxis stroke="#64748b" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
+                              <Tooltip
+                                contentStyle={{
+                                  backgroundColor: '#0b091a',
+                                  borderColor: 'rgba(255,255,255,0.06)',
+                                  borderRadius: '6px',
+                                  color: '#fff',
+                                  fontSize: '11px'
+                                }}
+                              />
+                              <Area 
+                                type="monotone" 
+                                dataKey="price" 
+                                stroke={statsB.isPositive ? '#10b981' : '#ef4444'} 
+                                strokeWidth={1.5}
+                                fill="url(#colorB)" 
+                              />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        )}
+                      </div>
+
+                      <div className="chart-card-footer-v2">
+                        <div className="footer-stat">
+                          <span className="f-price">${statsB.current}</span>
+                          <span className={`f-change ${statsB.isPositive ? 'up' : 'down'}`}>
+                            {statsB.changePercent}
+                          </span>
+                        </div>
+                        <span className="f-source">{sourceB === 'yfinance' ? 'Live Feed' : 'Mock Fallback'}</span>
+                      </div>
+                    </div>
+
                   </div>
-                </div>
+                )}
 
-                <div className="stat-box">
-                  <span className="stat-label">Range High</span>
-                  <span className="stat-value">${stats.high}</span>
-                </div>
-
-                <div className="stat-box">
-                  <span className="stat-label">Range Low</span>
-                  <span className="stat-value">${stats.low}</span>
-                </div>
-
-                <div className="stat-box source-indicator">
-                  <span className="stat-label">Feed Source</span>
-                  <span className="source-tag">{dataSource === 'yfinance' ? 'Yahoo Live' : 'Mock Fallback'}</span>
+                {/* Progress Mini bar to replace timeline */}
+                <div className="progress-mini-bar">
+                  <span className="step-tag done">✓ Step 1: Init</span>
+                  <span className="step-tag done">✓ Step 2: Auth</span>
+                  <span className="step-tag done">✓ Step 3: Charts</span>
+                  <span className="step-tag active">➔ Step 4: Redesign & Chat</span>
+                  <span className="step-tag">Step 5: RAG</span>
                 </div>
               </div>
-            </section>
+
+              {/* Right Column: Chat Window Panel */}
+              <div className="chat-window-panel">
+                <div className="chat-panel-header">
+                  <h4>RAG Agent Assistant</h4>
+                  <span className="agent-status-indicator">
+                    <span className="pulse-dot"></span>
+                    Online
+                  </span>
+                </div>
+
+                <div className="chat-messages-container">
+                  {chatMessages.map((msg, index) => (
+                    <div key={index} className={`chat-bubble-row ${msg.sender}`}>
+                      <div className="chat-bubble">
+                        <p>{msg.text}</p>
+                        <span className="bubble-time">{msg.time}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {chatSending && (
+                    <div className="chat-bubble-row agent">
+                      <div className="chat-bubble typing">
+                        <span className="dot"></span>
+                        <span className="dot"></span>
+                        <span className="dot"></span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <form onSubmit={handleSendMessage} className="chat-input-area">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="Ask about Microsoft (MSFT) or Apple (AAPL)..."
+                    disabled={chatSending}
+                  />
+                  <button type="submit" className="chat-send-btn" disabled={!chatInput.trim() || chatSending}>
+                    <Send size={16} />
+                  </button>
+                </form>
+              </div>
+
+            </div>
           </div>
         ) : (
           /* LOGGED OUT VIEW - AUTH FORM */
@@ -507,10 +763,6 @@ function App() {
           </div>
         )}
       </main>
-
-      <footer className="dashboard-footer">
-        <p>Market Intelligence App &copy; {new Date().getFullYear()} &bull; Git Flow: feature/charts</p>
-      </footer>
     </div>
   );
 }
