@@ -1,5 +1,6 @@
 import os
 import jwt
+import json
 import datetime
 import random
 from functools import wraps
@@ -7,7 +8,7 @@ import yfinance as yf
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from extensions import db, migrate, bcrypt
-from models import User
+from models import User, UploadedDocument, ChatMessage, Watchlist
 from tickers import search_tickers_db, TICKERS_DB
 from dotenv import load_dotenv
 
@@ -334,20 +335,169 @@ def upload_pdf(current_user):
 
         # Index the PDF immediately
         from ingest import ingest_pdf_file, guess_ticker_from_filename
-        success = ingest_pdf_file(filepath)
+        success = ingest_pdf_file(filepath, user_id=current_user.id)
 
         if success:
             ticker = guess_ticker_from_filename(filename)
+            
+            # Check if database entry already exists for this user
+            doc = UploadedDocument.query.filter_by(filename=filename, user_id=current_user.id).first()
+            if not doc:
+                doc = UploadedDocument(filename=filename, ticker=ticker, user_id=current_user.id)
+                db.session.add(doc)
+                db.session.commit()
+                
             return jsonify({
                 "message": f"Successfully uploaded and indexed {filename}",
-                "filename": filename,
-                "ticker": ticker
+                "document": doc.to_dict()
             }), 200
         else:
             return jsonify({"error": "Failed to extract text or index the document"}), 500
 
     except Exception as e:
         print(f"Error in upload_pdf: {str(e)}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/api/documents', methods=['GET'])
+@token_required
+def get_documents(current_user):
+    try:
+        docs = UploadedDocument.query.filter_by(user_id=current_user.id).all()
+        return jsonify([d.to_dict() for d in docs]), 200
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/api/documents/<int:doc_id>', methods=['PUT'])
+@token_required
+def update_document(current_user, doc_id):
+    try:
+        doc = UploadedDocument.query.filter_by(id=doc_id, user_id=current_user.id).first()
+        if not doc:
+            return jsonify({"error": "Document not found"}), 404
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        new_ticker = data.get('ticker', '').strip().upper()
+        if not new_ticker:
+            return jsonify({"error": "Ticker cannot be empty"}), 400
+        
+        doc.ticker = new_ticker
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Document ticker updated successfully",
+            "document": doc.to_dict()
+        }), 200
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/api/documents/<int:doc_id>', methods=['DELETE'])
+@token_required
+def delete_document(current_user, doc_id):
+    try:
+        doc = UploadedDocument.query.filter_by(id=doc_id, user_id=current_user.id).first()
+        if not doc:
+            return jsonify({"error": "Document not found"}), 404
+        
+        # Delete from vector database (ChromaDB)
+        try:
+            chroma_collection.delete(
+                where={"$and": [
+                    {"source": doc.filename},
+                    {"user_id": current_user.id}
+                ]}
+            )
+        except Exception as chroma_err:
+            print(f"Failed to delete vectors from ChromaDB for {doc.filename}: {str(chroma_err)}")
+            # Fallback
+            try:
+                chroma_collection.delete(where={"source": doc.filename})
+            except Exception:
+                pass
+
+        # Delete physical file from filesystem if no other user has it uploaded
+        other_docs = UploadedDocument.query.filter(UploadedDocument.filename == doc.filename, UploadedDocument.id != doc_id).first()
+        if not other_docs:
+            filepath = os.path.join(BASE_DIR, "documents", doc.filename)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        
+        # Delete from SQLite
+        db.session.delete(doc)
+        db.session.commit()
+        
+        return jsonify({"message": f"Successfully deleted document {doc.filename}"}), 200
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/api/chat/history', methods=['GET'])
+@token_required
+def get_chat_history(current_user):
+    try:
+        messages = ChatMessage.query.filter_by(user_id=current_user.id).order_by(ChatMessage.timestamp.asc()).all()
+        return jsonify([m.to_dict() for m in messages]), 200
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/api/chat/history', methods=['DELETE'])
+@token_required
+def delete_chat_history(current_user):
+    try:
+        ChatMessage.query.filter_by(user_id=current_user.id).delete()
+        db.session.commit()
+        return jsonify({"message": "Chat history cleared successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/api/watchlist', methods=['GET'])
+@token_required
+def get_watchlist(current_user):
+    try:
+        items = Watchlist.query.filter_by(user_id=current_user.id).all()
+        return jsonify([i.to_dict() for i in items]), 200
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/api/watchlist', methods=['POST'])
+@token_required
+def add_to_watchlist(current_user):
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        ticker = data.get('ticker', '').strip().upper()
+        if not ticker:
+            return jsonify({"error": "Ticker symbol is required"}), 400
+        
+        # Check if already in watchlist
+        existing = Watchlist.query.filter_by(user_id=current_user.id, ticker=ticker).first()
+        if existing:
+            return jsonify({"message": "Already in watchlist", "item": existing.to_dict()}), 200
+        
+        new_item = Watchlist(ticker=ticker, user_id=current_user.id)
+        db.session.add(new_item)
+        db.session.commit()
+        return jsonify(new_item.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/api/watchlist/<string:symbol>', methods=['DELETE'])
+@token_required
+def delete_from_watchlist(current_user, symbol):
+    try:
+        item = Watchlist.query.filter_by(user_id=current_user.id, ticker=symbol.upper()).first()
+        if not item:
+            return jsonify({"error": "Ticker not found in watchlist"}), 404
+        
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify({"message": f"Removed {symbol} from watchlist"}), 200
+    except Exception as e:
+        db.session.rollback()
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 @app.route('/api/tickers/search', methods=['GET'])
@@ -459,10 +609,17 @@ def chat(current_user):
                 matched_ticker = item
                 break
 
-        # Query ChromaDB for context
-        # We retrieve top 3 relevant chunks
+        # Query ChromaDB for context with user isolation
         try:
-            query_filter = {"ticker": matched_ticker["symbol"]} if matched_ticker else None
+            conditions = [{"user_id": current_user.id}]
+            if matched_ticker:
+                conditions.append({"ticker": matched_ticker["symbol"]})
+            
+            if len(conditions) > 1:
+                query_filter = {"$and": conditions}
+            else:
+                query_filter = conditions[0]
+
             db_results = chroma_collection.query(
                 query_texts=[message],
                 n_results=3,
@@ -539,6 +696,17 @@ def chat(current_user):
                     reply = f"I retrieved relevant context, but error calling Gemini API: HTTP {response.status_code}. Response: {response.text}"
             except Exception as api_err:
                 reply = f"I retrieved relevant context, but failed to connect to Gemini API: {str(api_err)}"
+
+        # Save both messages to database (user message and agent response)
+        try:
+            user_msg = ChatMessage(sender='user', text=message, user_id=current_user.id)
+            agent_msg = ChatMessage(sender='agent', text=reply, sources_json=json.dumps(sources), user_id=current_user.id)
+            db.session.add(user_msg)
+            db.session.add(agent_msg)
+            db.session.commit()
+        except Exception as db_save_err:
+            print(f"Failed to persist chat message: {str(db_save_err)}")
+            db.session.rollback()
 
         return jsonify({
             "reply": reply,
