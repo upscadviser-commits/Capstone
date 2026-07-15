@@ -102,7 +102,7 @@ def chunk_text(text, chunk_size=800, overlap=150):
         
     return chunks
 
-def ingest_pdf_file(filepath):
+def ingest_pdf_file(filepath, user_id=None):
     """
     Extract, chunk, and index a PDF file into ChromaDB collection.
     """
@@ -114,7 +114,7 @@ def ingest_pdf_file(filepath):
     ticker = guess_ticker_from_filename(filename)
     
     try:
-        print(f"Ingesting {filename} (guessed ticker: {ticker})...")
+        print(f"Ingesting {filename} (guessed ticker: {ticker}, user_id: {user_id})...")
         reader = pypdf.PdfReader(filepath)
         total_pages = len(reader.pages)
         
@@ -132,14 +132,19 @@ def ingest_pdf_file(filepath):
             page_chunks = chunk_text(page_text)
             for c_idx, chunk in enumerate(page_chunks):
                 chunk_counter += 1
-                doc_id = f"{filename}_p{page_idx+1}_c{c_idx+1}"
+                # Make doc ID unique by embedding user_id if present
+                suffix = f"_u{user_id}" if user_id is not None else ""
+                doc_id = f"{filename}_p{page_idx+1}_c{c_idx+1}{suffix}"
                 
                 documents.append(chunk)
-                metadatas.append({
+                meta = {
                     "source": filename,
                     "page": page_idx + 1,
                     "ticker": ticker
-                })
+                }
+                if user_id is not None:
+                    meta["user_id"] = user_id
+                metadatas.append(meta)
                 ids.append(doc_id)
         
         # Batch insert to ChromaDB

@@ -11,6 +11,8 @@ import {
 import { RefreshCw, Menu, X, Send } from 'lucide-react';
 import './App.css';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 interface User {
   id: number;
   username: string;
@@ -112,7 +114,7 @@ function TickerDropdownSelect({ selectedSymbol, onChange, defaultCategoryFilter,
     const delayDebounce = setTimeout(async () => {
       setLoadingResults(true);
       try {
-        const response = await fetch(`http://localhost:5000/api/tickers/search?q=${encodeURIComponent(searchVal)}`, {
+        const response = await fetch(`${API_BASE}/api/tickers/search?q=${encodeURIComponent(searchVal)}`, {
           headers: {
             'Authorization': `Bearer ${authToken}`
           }
@@ -279,6 +281,209 @@ function App() {
   const [uploadingFile, setUploadingFile] = useState<boolean>(false);
   const [uploadStatus, setUploadStatus] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  // New Custom States
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [watchlist, setWatchlist] = useState<any[]>([]);
+
+  // Fetch Documents
+  const fetchDocuments = async () => {
+    if (!token) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/documents`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDocuments(data);
+      }
+    } catch (err) {
+      console.error('Error fetching documents:', err);
+    }
+  };
+
+  // Delete Document
+  const handleDeleteDocument = async (docId: number) => {
+    if (!token) return;
+    if (!window.confirm("Are you sure you want to delete this document? This will remove all its text index embeddings from the AI vector store.")) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/documents/${docId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        setDocuments(prev => prev.filter(d => d.id !== docId));
+        // Add a notification in chat
+        const notificationMsg: ChatMessage = {
+          sender: 'agent',
+          text: `Successfully deleted document.`,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setChatMessages(prev => [...prev, notificationMsg]);
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to delete document');
+      }
+    } catch (err) {
+      console.error('Error deleting document:', err);
+    }
+  };
+
+  // Update Document Ticker (CRUD Update)
+  const handleUpdateDocumentTicker = async (docId: number, currentTicker: string) => {
+    const newTicker = prompt("Enter new stock ticker symbol for this document (e.g. SBIN.NS):", currentTicker);
+    if (newTicker === null) return;
+    const cleanTicker = newTicker.trim().toUpperCase();
+    if (!cleanTicker) {
+      alert("Ticker symbol cannot be empty");
+      return;
+    }
+    if (!token) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/documents/${docId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ ticker: cleanTicker })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDocuments(prev => prev.map(d => d.id === docId ? data.document : d));
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to update document ticker');
+      }
+    } catch (err) {
+      console.error('Error updating document ticker:', err);
+    }
+  };
+
+  // Fetch Watchlist
+  const fetchWatchlist = async () => {
+    if (!token) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/watchlist`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setWatchlist(data);
+      }
+    } catch (err) {
+      console.error('Error fetching watchlist:', err);
+    }
+  };
+
+  // Add to Watchlist
+  const handleAddToWatchlist = async (tickerSymbol: string) => {
+    if (!token) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/watchlist`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ ticker: tickerSymbol })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.ticker) {
+          setWatchlist(prev => {
+            if (prev.some(item => item.ticker === data.ticker)) return prev;
+            return [...prev, data];
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error adding to watchlist:', err);
+    }
+  };
+
+  // Remove from Watchlist
+  const handleRemoveFromWatchlist = async (tickerSymbol: string) => {
+    if (!token) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/watchlist/${tickerSymbol}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        setWatchlist(prev => prev.filter(item => item.ticker !== tickerSymbol));
+      }
+    } catch (err) {
+      console.error('Error removing from watchlist:', err);
+    }
+  };
+
+  // Fetch Chat History
+  const fetchChatHistory = async () => {
+    if (!token) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/chat/history`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.length > 0) {
+          const messages = data.map((msg: any) => ({
+            sender: msg.sender,
+            text: msg.text,
+            sources: msg.sources || [],
+            time: new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }));
+          setChatMessages(messages);
+        } else {
+          setChatMessages([
+            {
+              sender: 'agent',
+              text: 'Hello! I am your RAG-powered Market Intelligence assistant. How can I help you analyze market trends today?',
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }
+          ]);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching chat history:', err);
+    }
+  };
+
+  // Clear Chat History
+  const handleClearChatHistory = async () => {
+    if (!token) return;
+    if (!window.confirm("Are you sure you want to clear your conversation history?")) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/chat/history`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        setChatMessages([
+          {
+            sender: 'agent',
+            text: 'Hello! I am your RAG-powered Market Intelligence assistant. How can I help you analyze market trends today?',
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]);
+      }
+    } catch (err) {
+      console.error('Error clearing chat history:', err);
+    }
+  };
+
+  // Trigger loading resources
+  useEffect(() => {
+    if (user && token) {
+      fetchDocuments();
+      fetchWatchlist();
+      fetchChatHistory();
+    } else {
+      setDocuments([]);
+      setWatchlist([]);
+    }
+  }, [user, token]);
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0 || !token) return;
@@ -296,7 +501,7 @@ function App() {
     formData.append('file', file);
 
     try {
-      const response = await fetch('http://localhost:5000/api/upload-pdf', {
+      const response = await fetch(`${API_BASE}/api/upload-pdf`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -307,6 +512,7 @@ function App() {
       const data = await response.json();
       if (response.ok) {
         setUploadStatus({ text: `Indexed: ${file.name}`, type: 'success' });
+        fetchDocuments(); // Reload document list
         // Add a notification in chat
         const notificationMsg: ChatMessage = {
           sender: 'agent',
@@ -326,11 +532,12 @@ function App() {
     }
   };
 
+
   // Verify token on load
   const verifyToken = async (authToken: string) => {
     setVerifyingToken(true);
     try {
-      const response = await fetch('http://localhost:5000/api/auth/me', {
+      const response = await fetch(`${API_BASE}/api/auth/me`, {
         headers: {
           'Authorization': `Bearer ${authToken}`
         }
@@ -359,7 +566,7 @@ function App() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`http://localhost:5000/api/market-data?ticker=${ticker}&range=${range}`, {
+      const response = await fetch(`${API_BASE}/api/market-data?ticker=${ticker}&range=${range}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -416,7 +623,7 @@ function App() {
 
     setAuthLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/register', {
+      const response = await fetch(`${API_BASE}/api/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -452,7 +659,7 @@ function App() {
 
     setAuthLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/login', {
+      const response = await fetch(`${API_BASE}/api/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -505,7 +712,7 @@ function App() {
     setChatSending(true);
 
     try {
-      const response = await fetch('http://localhost:5000/api/chat', {
+      const response = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -624,12 +831,58 @@ function App() {
                   </button>
                 </li>
                 <li>
-                  <button className="sidebar-link" onClick={() => { setSidebarOpen(false); alert("History list loaded successfully!"); }}>
-                    Conversations
+                  <button className="sidebar-link" onClick={() => { setSidebarOpen(false); handleClearChatHistory(); }}>
+                    Clear Chat
                   </button>
                 </li>
               </ul>
 
+              {/* Watchlist Section */}
+              <div className="sidebar-watchlist-section">
+                <h4>My Watchlist ({watchlist.length})</h4>
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget;
+                  const input = form.elements.namedItem('watchlist-symbol') as HTMLInputElement;
+                  if (input && input.value.trim()) {
+                    handleAddToWatchlist(input.value.trim().toUpperCase());
+                    input.value = '';
+                  }
+                }} className="watchlist-form">
+                  <input 
+                    type="text" 
+                    name="watchlist-symbol" 
+                    placeholder="Add symbol (e.g. INFY.NS)" 
+                    className="watchlist-input" 
+                  />
+                  <button type="submit" className="btn-watchlist-add">+</button>
+                </form>
+                {watchlist.length > 0 ? (
+                  <div className="sidebar-watchlist-list">
+                    {watchlist.map(item => (
+                      <div key={item.id} className="watchlist-item">
+                        <span className="watchlist-symbol-clickable" onClick={() => {
+                          setTickerA(item.symbol);
+                          setSidebarOpen(false);
+                        }}>
+                          {item.ticker}
+                        </span>
+                        <button 
+                          className="btn-remove-watchlist"
+                          onClick={() => handleRemoveFromWatchlist(item.ticker)}
+                          title="Remove from Watchlist"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="no-watchlist-text">Watchlist is empty</p>
+                )}
+              </div>
+
+              {/* Upload PDF Section */}
               <div className="sidebar-upload-section">
                 <h4>Upload Document (PDF)</h4>
                 <div className="upload-dropzone">
@@ -659,9 +912,37 @@ function App() {
                 )}
               </div>
 
+              {/* Uploaded Documents List Section */}
+              <div className="sidebar-documents-section">
+                <h4>Uploaded Reports ({documents.length})</h4>
+                {documents.length > 0 ? (
+                  <div className="sidebar-doc-list">
+                    {documents.map(doc => (
+                      <div key={doc.id} className="sidebar-doc-item">
+                        <div className="doc-info">
+                          <span className="doc-name" title={doc.filename}>{doc.filename}</span>
+                          <span className="doc-ticker" onClick={() => handleUpdateDocumentTicker(doc.id, doc.ticker)}>
+                            Ticker: <strong>{doc.ticker}</strong> ✏️
+                          </span>
+                        </div>
+                        <button 
+                          className="btn-delete-doc" 
+                          onClick={() => handleDeleteDocument(doc.id)}
+                          title="Delete PDF & Vectors"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="no-docs-text">No reports uploaded yet</p>
+                )}
+              </div>
+
               <div className="sidebar-footer">
                 <span className="meta-text">SQLite Database: Online</span>
-                <span className="meta-text">Alembic Migrations: v20729abfa32</span>
+                <span className="meta-text">ChromaDB Store: Active</span>
               </div>
             </aside>
 
@@ -702,12 +983,21 @@ function App() {
                     {/* Chart A: Left Chart */}
                     <div className="chart-card-box">
                       <div className="chart-card-header-v2">
-                        <TickerDropdownSelect 
-                          selectedSymbol={tickerA} 
-                          onChange={(symbol) => setTickerA(symbol)} 
-                          defaultCategoryFilter="Indices"
-                          authToken={token}
-                        />
+                        <div className="chart-selector-row">
+                          <TickerDropdownSelect 
+                            selectedSymbol={tickerA} 
+                            onChange={(symbol) => setTickerA(symbol)} 
+                            defaultCategoryFilter="Indices"
+                            authToken={token}
+                          />
+                          <button 
+                            className="btn-watchlist-star" 
+                            onClick={() => handleAddToWatchlist(tickerA)}
+                            title="Add to Watchlist"
+                          >
+                            ★
+                          </button>
+                        </div>
 
                         <div className="range-pills">
                           {['1d', '5d', '1m', '1y'].map(r => (
@@ -764,7 +1054,7 @@ function App() {
 
                       <div className="chart-card-footer-v2">
                         <div className="footer-stat">
-                          <span className="f-price">${statsA.current}</span>
+                          <span className="f-price">₹{statsA.current}</span>
                           <span className={`f-change ${statsA.isPositive ? 'up' : 'down'}`}>
                             {statsA.changePercent}
                           </span>
@@ -776,12 +1066,21 @@ function App() {
                     {/* Chart B: Right Chart */}
                     <div className="chart-card-box">
                       <div className="chart-card-header-v2">
-                        <TickerDropdownSelect 
-                          selectedSymbol={tickerB} 
-                          onChange={(symbol) => setTickerB(symbol)} 
-                          defaultCategoryFilter="Technology"
-                          authToken={token}
-                        />
+                        <div className="chart-selector-row">
+                          <TickerDropdownSelect 
+                            selectedSymbol={tickerB} 
+                            onChange={(symbol) => setTickerB(symbol)} 
+                            defaultCategoryFilter="Technology"
+                            authToken={token}
+                          />
+                          <button 
+                            className="btn-watchlist-star" 
+                            onClick={() => handleAddToWatchlist(tickerB)}
+                            title="Add to Watchlist"
+                          >
+                            ★
+                          </button>
+                        </div>
 
                         <div className="range-pills">
                           {['1d', '5d', '1m', '1y'].map(r => (
@@ -838,7 +1137,7 @@ function App() {
 
                       <div className="chart-card-footer-v2">
                         <div className="footer-stat">
-                          <span className="f-price">${statsB.current}</span>
+                          <span className="f-price">₹{statsB.current}</span>
                           <span className={`f-change ${statsB.isPositive ? 'up' : 'down'}`}>
                             {statsB.changePercent}
                           </span>
@@ -849,15 +1148,6 @@ function App() {
 
                   </div>
                 )}
-
-                {/* Progress Mini bar to replace timeline */}
-                <div className="progress-mini-bar">
-                  <span className="step-tag done">✓ Step 1: Init</span>
-                  <span className="step-tag done">✓ Step 2: Auth</span>
-                  <span className="step-tag done">✓ Step 3: Charts</span>
-                  <span className="step-tag done">✓ Step 4: Chat</span>
-                  <span className="step-tag active">➔ Step 5: RAG</span>
-                </div>
               </div>
 
               {/* Right Column: Chat Window Panel */}

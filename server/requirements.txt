@@ -8,3 +8,4 @@ yfinance==0.2.40
 chromadb==0.5.3
 pypdf==4.2.0
 python-dotenv==1.0.1
+gunicorn==22.0.0
