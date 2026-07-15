@@ -11,6 +11,8 @@ import {
 import { RefreshCw, Menu, X, Send } from 'lucide-react';
 import './App.css';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 interface User {
   id: number;
   username: string;
@@ -112,7 +114,7 @@ function TickerDropdownSelect({ selectedSymbol, onChange, defaultCategoryFilter,
     const delayDebounce = setTimeout(async () => {
       setLoadingResults(true);
       try {
-        const response = await fetch(`http://localhost:5000/api/tickers/search?q=${encodeURIComponent(searchVal)}`, {
+        const response = await fetch(`${API_BASE}/api/tickers/search?q=${encodeURIComponent(searchVal)}`, {
           headers: {
             'Authorization': `Bearer ${authToken}`
           }
@@ -287,7 +289,7 @@ function App() {
   const fetchDocuments = async () => {
     if (!token) return;
     try {
-      const response = await fetch('http://localhost:5000/api/documents', {
+      const response = await fetch(`${API_BASE}/api/documents`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -304,7 +306,7 @@ function App() {
     if (!token) return;
     if (!window.confirm("Are you sure you want to delete this document? This will remove all its text index embeddings from the AI vector store.")) return;
     try {
-      const response = await fetch(`http://localhost:5000/api/documents/${docId}`, {
+      const response = await fetch(`${API_BASE}/api/documents/${docId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -337,7 +339,7 @@ function App() {
     }
     if (!token) return;
     try {
-      const response = await fetch(`http://localhost:5000/api/documents/${docId}`, {
+      const response = await fetch(`${API_BASE}/api/documents/${docId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -361,7 +363,7 @@ function App() {
   const fetchWatchlist = async () => {
     if (!token) return;
     try {
-      const response = await fetch('http://localhost:5000/api/watchlist', {
+      const response = await fetch(`${API_BASE}/api/watchlist`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -377,7 +379,7 @@ function App() {
   const handleAddToWatchlist = async (tickerSymbol: string) => {
     if (!token) return;
     try {
-      const response = await fetch('http://localhost:5000/api/watchlist', {
+      const response = await fetch(`${API_BASE}/api/watchlist`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -403,7 +405,7 @@ function App() {
   const handleRemoveFromWatchlist = async (tickerSymbol: string) => {
     if (!token) return;
     try {
-      const response = await fetch(`http://localhost:5000/api/watchlist/${tickerSymbol}`, {
+      const response = await fetch(`${API_BASE}/api/watchlist/${tickerSymbol}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -419,7 +421,7 @@ function App() {
   const fetchChatHistory = async () => {
     if (!token) return;
     try {
-      const response = await fetch('http://localhost:5000/api/chat/history', {
+      const response = await fetch(`${API_BASE}/api/chat/history`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -452,7 +454,7 @@ function App() {
     if (!token) return;
     if (!window.confirm("Are you sure you want to clear your conversation history?")) return;
     try {
-      const response = await fetch('http://localhost:5000/api/chat/history', {
+      const response = await fetch(`${API_BASE}/api/chat/history`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -499,7 +501,7 @@ function App() {
     formData.append('file', file);
 
     try {
-      const response = await fetch('http://localhost:5000/api/upload-pdf', {
+      const response = await fetch(`${API_BASE}/api/upload-pdf`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -535,7 +537,7 @@ function App() {
   const verifyToken = async (authToken: string) => {
     setVerifyingToken(true);
     try {
-      const response = await fetch('http://localhost:5000/api/auth/me', {
+      const response = await fetch(`${API_BASE}/api/auth/me`, {
         headers: {
           'Authorization': `Bearer ${authToken}`
         }
@@ -564,7 +566,7 @@ function App() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`http://localhost:5000/api/market-data?ticker=${ticker}&range=${range}`, {
+      const response = await fetch(`${API_BASE}/api/market-data?ticker=${ticker}&range=${range}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -621,7 +623,7 @@ function App() {
 
     setAuthLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/register', {
+      const response = await fetch(`${API_BASE}/api/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -657,7 +659,7 @@ function App() {
 
     setAuthLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/login', {
+      const response = await fetch(`${API_BASE}/api/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -710,7 +712,7 @@ function App() {
     setChatSending(true);
 
     try {
-      const response = await fetch('http://localhost:5000/api/chat', {
+      const response = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
