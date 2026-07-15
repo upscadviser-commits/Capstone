@@ -10,6 +10,14 @@ A modern, wowed-design web application for real-time market intelligence analyti
 
 ---
 
+## Production Deployment
+The application is fully pre-configured for production hosting:
+- **Frontend**: Vite SPA, configured for deployment on **Vercel** (recommended) or **Render (Static Site)** with dynamic `VITE_API_URL` environment variables.
+- **Backend**: Flask REST API, configured for deployment on **Render (Web Service)** with `gunicorn` production server integration.
+- **Step-by-Step Guide**: For detailed, step-by-step setup, configuration, and database persistence instructions, refer to the [DEPLOYMENT.md](DEPLOYMENT.md) guide in the repository root.
+
+---
+
 ## Complete Features Guide
 
 ### 1. User Authentication & Multi-User Isolation

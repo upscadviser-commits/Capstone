@@ -32,6 +32,13 @@ db.init_app(app)
 migrate.init_app(app, db)
 bcrypt.init_app(app)
 
+with app.app_context():
+    try:
+        db.create_all()
+        print("✅ Database tables created successfully.")
+    except Exception as e:
+        print(f"❌ Error creating database tables: {e}")
+
 # Custom embedding function to bypass buggy CoreML / onnxruntime on macOS
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 class GeminiOrHashEmbeddingFunction(EmbeddingFunction):
@@ -105,10 +112,21 @@ def token_required(f):
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    return jsonify({
-        "status": "success",
-        "message": "Flask server is healthy and running"
-    }), 200
+    try:
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+        tables = inspector.get_table_names()
+        return jsonify({
+            "status": "success",
+            "message": "Flask server is healthy and running",
+            "db_path": app.config['SQLALCHEMY_DATABASE_URI'],
+            "tables": tables
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Health check failed: {str(e)}"
+        }), 500
 
 @app.route('/api/hello', methods=['GET'])
 def hello():
