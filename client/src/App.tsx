@@ -860,7 +860,7 @@ function App() {
                     {watchlist.map(item => (
                       <div key={item.id} className="watchlist-item">
                         <span className="watchlist-symbol-clickable" onClick={() => {
-                          setTickerA(item.ticker);
+                          setTickerA(item.symbol);
                           setSidebarOpen(false);
                         }}>
                           {item.ticker}
@@ -1052,7 +1052,7 @@ function App() {
 
                       <div className="chart-card-footer-v2">
                         <div className="footer-stat">
-                          <span className="f-price">${statsA.current}</span>
+                          <span className="f-price">₹{statsA.current}</span>
                           <span className={`f-change ${statsA.isPositive ? 'up' : 'down'}`}>
                             {statsA.changePercent}
                           </span>
@@ -1135,7 +1135,7 @@ function App() {
 
                       <div className="chart-card-footer-v2">
                         <div className="footer-stat">
-                          <span className="f-price">${statsB.current}</span>
+                          <span className="f-price">₹{statsB.current}</span>
                           <span className={`f-change ${statsB.isPositive ? 'up' : 'down'}`}>
                             {statsB.changePercent}
                           </span>
@@ -1146,15 +1146,6 @@ function App() {
 
                   </div>
                 )}
-
-                {/* Progress Mini bar to replace timeline */}
-                <div className="progress-mini-bar">
-                  <span className="step-tag done">✓ Step 1: Init</span>
-                  <span className="step-tag done">✓ Step 2: Auth</span>
-                  <span className="step-tag done">✓ Step 3: Charts</span>
-                  <span className="step-tag done">✓ Step 4: Chat</span>
-                  <span className="step-tag active">➔ Step 5: RAG</span>
-                </div>
               </div>
 
               {/* Right Column: Chat Window Panel */}
