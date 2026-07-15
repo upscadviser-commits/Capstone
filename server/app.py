@@ -32,6 +32,9 @@ db.init_app(app)
 migrate.init_app(app, db)
 bcrypt.init_app(app)
 
+with app.app_context():
+    db.create_all()
+
 # Custom embedding function to bypass buggy CoreML / onnxruntime on macOS
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 class GeminiOrHashEmbeddingFunction(EmbeddingFunction):
